@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PaddlePals Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<h2>PaddlePals Dashboard</h2>
+
+<div id="status">Disconnected</div>
+
+<button onclick="connectWS()">Connect to Server</button>
+<button onclick="sendCommand('calibrate')">Calibrate</button>
+<button onclick="sendCommand('reset')">Reset</button>
+
+<h3>FSR Data</h3>
+<div id="data">Waiting for data...</div>
+
+<script src="script.js"></script>
+</body>
+</html>

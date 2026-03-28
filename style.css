@@ -1,0 +1,27 @@
+body {
+  font-family: Arial, sans-serif;
+  text-align: center;
+  padding: 20px;
+}
+
+button {
+  padding: 10px 20px;
+  font-size: 16px;
+  margin: 5px;
+  cursor: pointer;
+}
+
+#data {
+  margin-top: 20px;
+  font-size: 16px;
+  white-space: pre-line;
+  text-align: left;
+  max-width: 400px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+#status {
+  font-weight: bold;
+  margin-bottom: 10px;
+}
