@@ -1,7 +1,7 @@
 let socket;
 
 function connectWS() {
-const laptopIP = "127.0.0.1"; // use localhost for testing on the same machine
+const laptopIP = "172.16.181.150"; // use localhost for testing on the same machine
 const port = 8080;
 
 socket = new WebSocket(`ws://${laptopIP}:${port}`);
