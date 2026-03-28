@@ -1,0 +1,19 @@
+# Node modules (installed via npm)
+node_modules/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local environment files
+.env
+*.local
+
+# Build folders (if we ever add one)
+dist/
+build/
