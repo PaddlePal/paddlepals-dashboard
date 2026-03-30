@@ -1,24 +1,73 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PaddlePals Dashboard</title>
-  <link rel="stylesheet" href="style.css">
+  <meta charset="utf-8">
+  <title>PaddlePals BLE Dashboard</title>
+  <style>
+    body { font-family: Arial; text-align: center; padding: 20px; }
+    button { padding: 10px 20px; font-size: 16px; margin-bottom: 20px; }
+    #data { margin-top: 20px; font-size: 14px; white-space: pre-line; border: 1px solid #ccc; padding: 10px; height: 300px; overflow-y: scroll; }
+  </style>
 </head>
 <body>
 
-<h2>PaddlePals Dashboard</h2>
+<h2>PaddlePals BLE Dashboard</h2>
+<button onclick="connectBLE()">Connect to FSR Reader</button>
 
-<div id="status">Disconnected</div>
-
-<button onclick="connectWS()">Connect to Server</button>
-<button onclick="sendCommand('calibrate')">Calibrate</button>
-<button onclick="sendCommand('reset')">Reset</button>
-
-<h3>FSR Data</h3>
 <div id="data">Waiting for data...</div>
 
-<script src="script.js"></script>
+<script>
+const socket = new WebSocket("ws://172.16.181.150:3001");
+
+socket.onmessage = (event) => {
+  const value = event.data.toString(); // <-- force string
+  const dataDiv = document.getElementById("data");
+  dataDiv.innerText = value + "\n" + dataDiv.innerText;
+};
+  let characteristic;
+
+  async function connectBLE() {
+    try {
+      const device = await navigator.bluetooth.requestDevice({
+        filters: [
+          { name: "FSR_Reader" }, // <-- only show your FSR device
+          { services: ["4fafc201-1fb5-459e-8fcc-c5c9c331914b"] } // optional: filter by BLE service
+        ],
+        optionalServices: ["4fafc201-1fb5-459e-8fcc-c5c9c331914b"]
+      });
+
+      const server = await device.gatt.connect();
+      const service = await server.getPrimaryService(
+        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+      );
+
+      characteristic = await service.getCharacteristic(
+        "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+      );
+
+      await characteristic.startNotifications();
+      characteristic.addEventListener("characteristicvaluechanged", handleData);
+
+      alert("Connected to FSR Reader!");
+    } catch (error) {
+      alert("BLE Error: " + error);
+    }
+  }
+
+  function handleData(event) {
+  // Decode BLE value
+  const value = new TextDecoder().decode(event.target.value);
+
+  // Force sending as a string
+  if (socket.readyState === WebSocket.OPEN) {
+    socket.send(value.toString()); // <-- important
+  }
+
+  // Show locally
+  const dataDiv = document.getElementById("data");
+  dataDiv.innerText = value + "\n" + dataDiv.innerText;
+}
+</script>
+
 </body>
 </html>

@@ -1,7 +1,6 @@
 {
   "name": "paddlepals-dashboard",
   "version": "1.0.0",
-  "description": "",
   "main": "script.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -20,6 +19,9 @@
   },
   "homepage": "https://github.com/PaddlePal/paddlepals-dashboard#readme",
   "dependencies": {
+    "express": "^5.2.1",
+    "noble": "^1.9.1",
     "ws": "^8.20.0"
-  }
+  },
+  "description": ""
 }

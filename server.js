@@ -1,19 +1,31 @@
 // server.js
-const WebSocket = require('ws');
-const wss = new WebSocket.Server({ port: 8080 });
+const WebSocket = require("ws");
+const express = require("express");
+const app = express();
+const PORT = 3000;
 
-wss.on('connection', ws => {
-  console.log('Client connected');
+// Serve static files (your dashboard)
+app.use(express.static(__dirname));
+app.listen(PORT, () => console.log(`Server running at http://localhost:${PORT}`));
 
-  // Example: send dummy FSR data every second
-  const interval = setInterval(() => {
-    ws.send("FSR value: " + Math.floor(Math.random() * 100));
-  }, 1000);
+// WebSocket server
+const wss = new WebSocket.Server({ port: 3001 }); // Use a separate port for WS
+console.log("WebSocket running on ws://localhost:3001");
 
-  ws.on('close', () => {
-    clearInterval(interval);
-    console.log('Client disconnected');
+wss.on("connection", (ws) => {
+  console.log("New client connected");
+
+  ws.on("message", (message) => {
+    // Convert to string just in case
+    const str = message.toString();
+
+    // Broadcast to all clients
+    wss.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(str); 
+      }
+    });
   });
-});
 
-console.log("WebSocket server running on port 8080");
+  ws.on("close", () => console.log("Client disconnected"));
+});
