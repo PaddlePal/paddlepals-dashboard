@@ -1,28 +1,27 @@
-// server.js
 const WebSocket = require("ws");
 const express = require("express");
+const http = require("http");
+
 const app = express();
-const PORT = 3000;
-
-// Serve static files (your dashboard)
 app.use(express.static(__dirname));
-app.listen(PORT, () => console.log(`Server running at http://localhost:${PORT}`));
 
-// WebSocket server
-const wss = new WebSocket.Server({ port: 3001 }); // Use a separate port for WS
-console.log("WebSocket running on ws://localhost:3001");
+// Single server for both HTTP and WebSocket
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
+
+server.listen(3000, () => {
+  console.log("Server running at http://localhost:3000");
+  console.log("WebSocket running on ws://localhost:3000");
+});
 
 wss.on("connection", (ws) => {
   console.log("New client connected");
 
   ws.on("message", (message) => {
-    // Convert to string just in case
     const str = message.toString();
-
-    // Broadcast to all clients
     wss.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {
-        client.send(str); 
+        client.send(str);
       }
     });
   });

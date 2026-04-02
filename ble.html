@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>BLE Sender</title>
+</head>
+<body>
+  <h2>BLE Sender (run on laptop)</h2>
+  <button onclick="connectBLE()">Connect to FSR Reader</button>
+  <div id="status">Not connected</div>
+
+  <script>
+    const socket = new WebSocket("ws://172.16.181.150:3000");
+
+    socket.onopen = () => {
+      document.getElementById("status").innerText = "WebSocket connected";
+    };
+
+    async function connectBLE() {
+      try {
+        const device = await navigator.bluetooth.requestDevice({
+	  filters: [
+	    { name: "FSR_Reader" },
+	    { services: ["4fafc201-1fb5-459e-8fcc-c5c9c331914b"] }
+	  ],
+	  optionalServices: ["4fafc201-1fb5-459e-8fcc-c5c9c331914b"]
+	});
+
+        const server = await device.gatt.connect();
+        const service = await server.getPrimaryService(
+          "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+        );
+        const characteristic = await service.getCharacteristic(
+          "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+        );
+
+        await characteristic.startNotifications();
+        characteristic.addEventListener("characteristicvaluechanged", handleData);
+
+        document.getElementById("status").innerText = "BLE + WebSocket connected!";
+      } catch (error) {
+        alert("BLE Error: " + error);
+      }
+    }
+
+    function handleData(event) {
+      const value = new TextDecoder().decode(event.target.value);
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(value.toString());
+      }
+      document.getElementById("status").innerText = "Sending: " + value;
+    }
+  </script>
+</body>
+</html>
