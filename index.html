@@ -1,23 +1,191 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
   <title>PaddlePals Dashboard</title>
   <style>
-    body { font-family: Arial; text-align: center; padding: 20px; }
-    #data { margin-top: 20px; font-size: 14px; white-space: pre-line; border: 1px solid #ccc; padding: 10px; height: 300px; overflow-y: scroll; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0a0a0f; font-family: Arial, sans-serif; min-height: 100vh; padding: 0 0 40px; }
+
+    .header { padding: 52px 20px 14px; display: flex; align-items: center; justify-content: space-between; }
+    .header-title { font-size: 22px; font-weight: 600; color: #fff; letter-spacing: -0.3px; }
+    .header-sub { font-size: 12px; color: #555; margin-top: 3px; }
+    .live-dot { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #4ade80; }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: #4ade80; animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+    .paddle-section { display: flex; justify-content: center; padding: 4px 0 8px; }
+    .paddle-svg { width: 200px; }
+
+    .zones-legend { padding: 0 16px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+    .zone-chip { background: #13131f; border-radius: 10px; padding: 8px; text-align: center; border: 1px solid #1e1e30; transition: all 0.2s; }
+    .zone-chip.active { border-color: #7c3aed; background: #1e1030; }
+    .zone-chip .zlabel { font-size: 10px; color: #444; margin-bottom: 3px; }
+    .zone-chip .zval { font-size: 17px; font-weight: 600; color: #666; }
+    .zone-chip.active .zval { color: #a78bfa; }
+
+    .feed-section { padding: 14px 16px 0; }
+    .feed-label { font-size: 10px; color: #444; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px; }
+    .feed { background: #0a0a12; border-radius: 12px; padding: 10px 12px; height: 88px; overflow-y: auto; border: 1px solid #1a1a2e; }
+    .feed-item { font-size: 12px; color: #444; padding: 2px 0; font-family: monospace; }
+    .feed-item.new { color: #a78bfa; }
+
+    .bottom-bar { margin: 14px 16px 0; background: #13131f; border-radius: 18px; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; border: 1px solid #1e1e30; }
+    .stat { text-align: center; flex: 1; }
+    .stat-val { font-size: 20px; font-weight: 600; color: #fff; }
+    .stat-lbl { font-size: 10px; color: #444; margin-top: 3px; }
+    .divider { width: 1px; height: 32px; background: #1e1e30; }
   </style>
 </head>
 <body>
-  <h2>PaddlePals BLE Dashboard</h2>
-  <div id="data">Waiting for data...</div>
 
-  <script>
-    const socket = new WebSocket("ws://172.16.181.150:3000");
+  <div class="header">
+    <div>
+      <div class="header-title">PaddlePals</div>
+      <div class="header-sub">FSR Reader · Zone map</div>
+    </div>
+    <div class="live-dot"><div class="dot"></div><span id="liveLabel">Connecting...</span></div>
+  </div>
 
-    socket.onmessage = (event) => {
-      const dataDiv = document.getElementById("data");
-      dataDiv.innerText = event.data + "\n" + dataDiv.innerText;
-    };
-  </script>
+  <div class="paddle-section">
+    <svg class="paddle-svg" viewBox="0 0 220 320" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <clipPath id="paddleClip">
+          <ellipse cx="110" cy="130" rx="95" ry="118"/>
+        </clipPath>
+      </defs>
+      <ellipse cx="110" cy="130" rx="95" ry="118" fill="#13132a" stroke="#2a2a4a" stroke-width="1.5"/>
+      <g clip-path="url(#paddleClip)">
+        <line x1="76" y1="12" x2="76" y2="248" stroke="#2a2a4a" stroke-width="0.8"/>
+        <line x1="110" y1="12" x2="110" y2="248" stroke="#2a2a4a" stroke-width="0.8"/>
+        <line x1="144" y1="12" x2="144" y2="248" stroke="#2a2a4a" stroke-width="0.8"/>
+        <line x1="15" y1="76" x2="205" y2="76" stroke="#2a2a4a" stroke-width="0.8"/>
+        <line x1="15" y1="110" x2="205" y2="110" stroke="#2a2a4a" stroke-width="0.8"/>
+        <line x1="15" y1="144" x2="205" y2="144" stroke="#2a2a4a" stroke-width="0.8"/>
+        <line x1="15" y1="178" x2="205" y2="178" stroke="#2a2a4a" stroke-width="0.8"/>
+
+        <rect id="svg-z4" x="76" y="76" width="68" height="34" fill="#1e1a40" stroke="#4c3d9e" stroke-width="1" opacity="0.7"/>
+        <rect id="svg-z1" x="76" y="110" width="68" height="68" fill="#2d1f5e" stroke="#7c3aed" stroke-width="1.5" opacity="0.85"/>
+        <rect id="svg-z5" x="76" y="178" width="68" height="34" fill="#1e1a40" stroke="#4c3d9e" stroke-width="1" opacity="0.7"/>
+        <rect id="svg-z6" x="76" y="212" width="68" height="34" fill="#1a1220" stroke="#3b1f4e" stroke-width="1" opacity="0.6"/>
+        <rect id="svg-z2" x="144" y="76" width="61" height="136" fill="#1a2a1a" stroke="#166534" stroke-width="1" opacity="0.7"/>
+        <rect id="svg-z3" x="15" y="76" width="61" height="136" fill="#1a2a1a" stroke="#166534" stroke-width="1" opacity="0.7"/>
+
+        <text x="110" y="97" text-anchor="middle" fill="#7c6fc0" font-size="10" font-family="Arial">Z4</text>
+        <text x="110" y="149" text-anchor="middle" fill="#c4b5fd" font-size="12" font-weight="600" font-family="Arial">Z1</text>
+        <text x="110" y="200" text-anchor="middle" fill="#7c6fc0" font-size="10" font-family="Arial">Z5</text>
+        <text x="110" y="233" text-anchor="middle" fill="#5a3d7a" font-size="10" font-family="Arial">Z6</text>
+        <text x="174" y="147" text-anchor="middle" fill="#4ade80" font-size="10" font-family="Arial">Z2</text>
+        <text x="46" y="147" text-anchor="middle" fill="#4ade80" font-size="10" font-family="Arial">Z3</text>
+      </g>
+      <rect x="88" y="245" width="44" height="68" rx="8" fill="#0d0d1a" stroke="#222" stroke-width="1.5"/>
+      <rect x="96" y="252" width="28" height="54" rx="5" fill="#111125" stroke="#1e1e3a" stroke-width="1"/>
+      <line x1="96" y1="266" x2="124" y2="266" stroke="#1e1e3a" stroke-width="1"/>
+      <line x1="96" y1="278" x2="124" y2="278" stroke="#1e1e3a" stroke-width="1"/>
+      <line x1="96" y1="290" x2="124" y2="290" stroke="#1e1e3a" stroke-width="1"/>
+    </svg>
+  </div>
+
+  <div class="zones-legend">
+    <div class="zone-chip" id="chip-z1"><div class="zlabel">Zone 1</div><div class="zval" id="v1">—</div></div>
+    <div class="zone-chip" id="chip-z2"><div class="zlabel">Zone 2</div><div class="zval" id="v2">—</div></div>
+    <div class="zone-chip" id="chip-z3"><div class="zlabel">Zone 3</div><div class="zval" id="v3">—</div></div>
+    <div class="zone-chip" id="chip-z4"><div class="zlabel">Zone 4</div><div class="zval" id="v4">—</div></div>
+    <div class="zone-chip" id="chip-z5"><div class="zlabel">Zone 5</div><div class="zval" id="v5">—</div></div>
+    <div class="zone-chip" id="chip-z6"><div class="zlabel">Zone 6</div><div class="zval" id="v6">—</div></div>
+  </div>
+
+  <div class="feed-section">
+    <div class="feed-label">Data stream</div>
+    <div class="feed" id="feed"><div class="feed-item" style="color:#333">Waiting for connection...</div></div>
+  </div>
+
+  <div class="bottom-bar">
+    <div class="stat"><div class="stat-val" id="hitCount">0</div><div class="stat-lbl">Hits</div></div>
+    <div class="divider"></div>
+    <div class="stat"><div class="stat-val" id="peakZone">—</div><div class="stat-lbl">Peak zone</div></div>
+    <div class="divider"></div>
+    <div class="stat"><div class="stat-val" id="peakVal">—</div><div class="stat-lbl">Peak force</div></div>
+  </div>
+
+<script>
+  const socket = new WebSocket("ws://172.16.181.150:3000");
+  let hitCount = 0, peakVal = 0;
+
+  socket.onopen = () => {
+    document.getElementById('liveLabel').textContent = 'Live';
+    document.querySelector('.live-dot').style.color = '#4ade80';
+    document.querySelector('.dot').style.background = '#4ade80';
+    const feed = document.getElementById('feed');
+    feed.innerHTML = '<div class="feed-item" style="color:#4ade80">Connected ✓</div>';
+  };
+
+  socket.onerror = () => {
+    document.getElementById('liveLabel').textContent = 'Error';
+    document.querySelector('.live-dot').style.color = '#ef4444';
+    document.querySelector('.dot').style.background = '#ef4444';
+  };
+
+  socket.onclose = () => {
+    document.getElementById('liveLabel').textContent = 'Disconnected';
+    document.querySelector('.live-dot').style.color = '#ef4444';
+    document.querySelector('.dot').style.background = '#ef4444';
+  };
+
+  socket.onmessage = (event) => {
+    const raw = event.data.toString();
+    updateUI(raw);
+  };
+
+  function updateUI(raw) {
+    // Add to feed
+    const feed = document.getElementById('feed');
+    const item = document.createElement('div');
+    item.className = 'feed-item new';
+    item.textContent = raw;
+    feed.insertBefore(item, feed.firstChild);
+    setTimeout(() => item.classList.remove('new'), 1000);
+    if (feed.children.length > 20) feed.removeChild(feed.lastChild);
+
+    // Parse "Zone i: xx" or "Zone i: xxx"
+    const matches = [...raw.matchAll(/Zone\s*(\d+)\s*:\s*(\d+)/gi)];
+    if (matches.length === 0) return;
+
+    hitCount++;
+    document.getElementById('hitCount').textContent = hitCount;
+
+    matches.forEach(m => {
+      const zNum = m[1];
+      const val = parseInt(m[2]);
+      const zKey = 'z' + zNum;
+
+      // Update chip
+      const valEl = document.getElementById('v' + zNum);
+      const chip = document.getElementById('chip-' + zKey);
+      if (valEl) valEl.textContent = val;
+      if (chip) {
+        chip.classList.add('active');
+        setTimeout(() => chip.classList.remove('active'), 800);
+      }
+
+      // Flash SVG zone
+      const svgZone = document.getElementById('svg-' + zKey);
+      if (svgZone) {
+        svgZone.style.opacity = '1';
+        const base = zKey==='svg-z1' ? '0.85' : zKey==='svg-z6' ? '0.6' : '0.7';
+        setTimeout(() => svgZone.style.opacity = base, 600);
+      }
+
+      // Track peak
+      if (val > peakVal) {
+        peakVal = val;
+        document.getElementById('peakZone').textContent = 'Z' + zNum;
+        document.getElementById('peakVal').textContent = val;
+      }
+    });
+  }
+</script>
+
 </body>
 </html>
