@@ -5,49 +5,81 @@
 </head>
 <body>
   <h2>BLE Sender (run on laptop)</h2>
-  <button onclick="connectBLE()">Connect to FSR Reader</button>
+  <button onclick="connectBLE()">Connect to PaddleSensor</button>
   <div id="status">Not connected</div>
 
   <script>
-    const socket = new WebSocket("ws://172.16.181.150:3000");
+    const SERVICE_UUID   = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
+    const FSR_CHAR_UUID  = "beb5483e-36e1-4688-b7f5-ea07361b26a8"; // hit events
+    const IMU_CHAR_UUID  = "beb5483e-36e1-4688-b7f5-ea07361b26a9"; // continuous IMU stream
 
+    const socket = new WebSocket("ws://172.16.181.150:3000");
     socket.onopen = () => {
       document.getElementById("status").innerText = "WebSocket connected";
     };
 
     async function connectBLE() {
       try {
+        // Request device — updated name to match Arduino code
         const device = await navigator.bluetooth.requestDevice({
-	  filters: [
-	    { name: "FSR_Reader" },
-	    { services: ["4fafc201-1fb5-459e-8fcc-c5c9c331914b"] }
-	  ],
-	  optionalServices: ["4fafc201-1fb5-459e-8fcc-c5c9c331914b"]
-	});
+          filters: [
+            { name: "PaddleSensor" },
+            { services: [SERVICE_UUID] }
+          ],
+          optionalServices: [SERVICE_UUID]
+        });
 
-        const server = await device.gatt.connect();
-        const service = await server.getPrimaryService(
-          "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
-        );
-        const characteristic = await service.getCharacteristic(
-          "beb5483e-36e1-4688-b7f5-ea07361b26a8"
-        );
+        const server  = await device.gatt.connect();
+        const service = await server.getPrimaryService(SERVICE_UUID);
 
-        await characteristic.startNotifications();
-        characteristic.addEventListener("characteristicvaluechanged", handleData);
+        // Subscribe to FSR hit characteristic
+        // Fires on hit events: "Z3:180,GX:142.3,GY:-89.2,GZ:12.1,AX:0.45,AY:-1.2,AZ:9.8\n"
+        const fsrChar = await service.getCharacteristic(FSR_CHAR_UUID);
+        await fsrChar.startNotifications();
+        fsrChar.addEventListener("characteristicvaluechanged", handleFSR);
+
+        // Subscribe to IMU stream characteristic
+        // Fires every 100ms: "GX:142.3,GY:-89.2,GZ:12.1,AX:0.45,AY:-1.2,AZ:9.8"
+        const imuChar = await service.getCharacteristic(IMU_CHAR_UUID);
+        await imuChar.startNotifications();
+        imuChar.addEventListener("characteristicvaluechanged", handleIMU);
 
         document.getElementById("status").innerText = "BLE + WebSocket connected!";
+
+        // Handle unexpected disconnection
+        device.addEventListener("gattserverdisconnected", () => {
+          document.getElementById("status").innerText = "BLE disconnected — reconnect to continue";
+        });
+
       } catch (error) {
         alert("BLE Error: " + error);
       }
     }
 
-    function handleData(event) {
-      const value = new TextDecoder().decode(event.target.value);
+    // Hit event handler — prefixed with HIT: so dashboard can distinguish type
+    function handleFSR(event) {
+      const value = new TextDecoder().decode(event.target.value).trim();
+      if (!value || value === "Waiting...") return;
+
+      const msg = "HIT:" + value;
+      sendToSocket(msg);
+      document.getElementById("status").innerText = "FSR: " + value;
+    }
+
+    // IMU stream handler — prefixed with IMU: so dashboard can distinguish type
+    function handleIMU(event) {
+      const value = new TextDecoder().decode(event.target.value).trim();
+      if (!value || value === "Waiting...") return;
+
+      const msg = "IMU:" + value;
+      sendToSocket(msg);
+      // Don't update status text for IMU — it fires every 100ms and would flicker
+    }
+
+    function sendToSocket(msg) {
       if (socket.readyState === WebSocket.OPEN) {
-        socket.send(value.toString());
+        socket.send(msg);
       }
-      document.getElementById("status").innerText = "Sending: " + value;
     }
   </script>
 </body>
