@@ -2,25 +2,56 @@
 <html>
 <head>
   <title>BLE Sender</title>
+  <style>
+    body { font-family: monospace; background: #0a0a14; color: #dde0f0; padding: 24px; }
+    h2   { color: #6ee7f7; margin-bottom: 16px; }
+    button { background: #1a1a3a; border: 1px solid #383860; color: #6ee7f7; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-family: monospace; font-size: 13px; }
+    button:hover { background: #222244; }
+    #status { margin-top: 12px; font-size: 12px; color: #383860; line-height: 1.8; }
+    #status .ok  { color: #34d399; }
+    #status .err { color: #f87171; }
+  </style>
 </head>
 <body>
-  <h2>BLE Sender (run on laptop)</h2>
+  <h2>PaddleSensor · BLE Bridge</h2>
   <button onclick="connectBLE()">Connect to PaddleSensor</button>
-  <div id="status">Not connected</div>
+  <div id="status">
+    <div>WebSocket: <span id="wsStatus">connecting...</span></div>
+    <div>BLE:       <span id="bleStatus">not connected</span></div>
+    <div>Last CMD:  <span id="lastCmd">—</span></div>
+    <div>Last HIT:  <span id="lastHit">—</span></div>
+  </div>
 
   <script>
-    const SERVICE_UUID   = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
-    const FSR_CHAR_UUID  = "beb5483e-36e1-4688-b7f5-ea07361b26a8"; // hit events
-    const IMU_CHAR_UUID  = "beb5483e-36e1-4688-b7f5-ea07361b26a9"; // continuous IMU stream
+    const SERVICE_UUID  = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
+    const FSR_CHAR_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+    const IMU_CHAR_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a9";
+    const CMD_CHAR_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26aa"; // new
 
     const socket = new WebSocket("ws://172.16.181.150:3000");
-    socket.onopen = () => {
-      document.getElementById("status").innerText = "WebSocket connected";
+    let cmdChar  = null; // reference to writable BLE characteristic
+
+    socket.onopen  = () => setWs('Connected', true);
+    socket.onerror = () => setWs('Error', false);
+    socket.onclose = () => setWs('Disconnected', false);
+
+    // ── Receive messages from dashboard → forward to Arduino via BLE ──
+    socket.onmessage = (e) => {
+      const raw = e.data.toString().trim();
+      if (raw.startsWith('CMD:')) {
+        const cmd = raw.slice(4);
+        document.getElementById('lastCmd').textContent = cmd;
+        if (cmdChar) {
+          const encoder = new TextEncoder();
+          cmdChar.writeValue(encoder.encode(cmd))
+            .then(() => console.log('CMD sent to Arduino:', cmd))
+            .catch(err => console.warn('CMD write failed:', err));
+        }
+      }
     };
 
     async function connectBLE() {
       try {
-        // Request device — updated name to match Arduino code
         const device = await navigator.bluetooth.requestDevice({
           filters: [
             { name: "PaddleSensor" },
@@ -32,55 +63,57 @@
         const server  = await device.gatt.connect();
         const service = await server.getPrimaryService(SERVICE_UUID);
 
-        // Subscribe to FSR hit characteristic
-        // Fires on hit events: "Z3:180,GX:142.3,GY:-89.2,GZ:12.1,AX:0.45,AY:-1.2,AZ:9.8\n"
+        // FSR hit characteristic
         const fsrChar = await service.getCharacteristic(FSR_CHAR_UUID);
         await fsrChar.startNotifications();
         fsrChar.addEventListener("characteristicvaluechanged", handleFSR);
 
-        // Subscribe to IMU stream characteristic
-        // Fires every 100ms: "GX:142.3,GY:-89.2,GZ:12.1,AX:0.45,AY:-1.2,AZ:9.8"
+        // IMU stream characteristic
         const imuChar = await service.getCharacteristic(IMU_CHAR_UUID);
         await imuChar.startNotifications();
         imuChar.addEventListener("characteristicvaluechanged", handleIMU);
 
-        document.getElementById("status").innerText = "BLE + WebSocket connected!";
+        // CMD characteristic — writable, we hold a reference for sending
+        cmdChar = await service.getCharacteristic(CMD_CHAR_UUID);
 
-        // Handle unexpected disconnection
+        setBle('Connected', true);
+
         device.addEventListener("gattserverdisconnected", () => {
-          document.getElementById("status").innerText = "BLE disconnected — reconnect to continue";
+          setBle('Disconnected', false);
+          cmdChar = null;
         });
 
-      } catch (error) {
-        alert("BLE Error: " + error);
+      } catch (err) {
+        setBle('Error: ' + err.message, false);
+        console.error(err);
       }
     }
 
-    // Hit event handler — prefixed with HIT: so dashboard can distinguish type
     function handleFSR(event) {
       const value = new TextDecoder().decode(event.target.value).trim();
       if (!value || value === "Waiting...") return;
-
-      const msg = "HIT:" + value;
-      sendToSocket(msg);
-      document.getElementById("status").innerText = "FSR: " + value;
+      // STATUS messages and HIT messages both go over FSR characteristic
+      if (value.startsWith("STATUS:")) {
+        sendToSocket(value); // forward as-is, dashboard handles STATUS: prefix
+      } else {
+        const msg = "HIT:" + value;
+        sendToSocket(msg);
+        document.getElementById('lastHit').textContent = value.slice(0, 60);
+      }
     }
 
-    // IMU stream handler — prefixed with IMU: so dashboard can distinguish type
     function handleIMU(event) {
       const value = new TextDecoder().decode(event.target.value).trim();
       if (!value || value === "Waiting...") return;
-
-      const msg = "IMU:" + value;
-      sendToSocket(msg);
-      // Don't update status text for IMU — it fires every 100ms and would flicker
+      sendToSocket("IMU:" + value);
     }
 
     function sendToSocket(msg) {
-      if (socket.readyState === WebSocket.OPEN) {
-        socket.send(msg);
-      }
+      if (socket.readyState === WebSocket.OPEN) socket.send(msg);
     }
+
+    function setWs(txt, ok)  { const el=document.getElementById('wsStatus');  el.textContent=txt; el.className=ok?'ok':'err'; }
+    function setBle(txt, ok) { const el=document.getElementById('bleStatus'); el.textContent=txt; el.className=ok?'ok':'err'; }
   </script>
 </body>
 </html>

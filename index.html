@@ -8,18 +8,19 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <style>
     :root {
-      --bg:       #07070f;
-      --surface:  #0e0e1c;
-      --border:   #191930;
-      --border2:  #222240;
-      --accent:   #6ee7f7;
-      --purple:   #a78bfa;
-      --green:    #34d399;
-      --amber:    #fbbf24;
-      --pink:     #f472b6;
-      --text:     #dde0f0;
-      --muted:    #383860;
-      --dim:      #111120;
+      --bg:      #07070f;
+      --surface: #0e0e1c;
+      --border:  #191930;
+      --border2: #222240;
+      --accent:  #6ee7f7;
+      --purple:  #a78bfa;
+      --green:   #34d399;
+      --amber:   #fbbf24;
+      --pink:    #f472b6;
+      --red:     #f87171;
+      --text:    #dde0f0;
+      --muted:   #383860;
+      --dim:     #111120;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { height: 100%; }
@@ -38,11 +39,14 @@
       pointer-events: none;
       z-index: 0;
     }
+
     .wrap {
       position: relative; z-index: 1;
       max-width: 480px; margin: 0 auto;
-      padding: 0 14px 60px;
+      padding: 0 14px 80px;
     }
+
+    /* ── HEADER ── */
     .header {
       padding: 44px 0 20px;
       display: flex; align-items: center; justify-content: space-between;
@@ -63,9 +67,12 @@
     }
     .pill.on  { color: var(--green);  border-color: rgba(52,211,153,0.25); }
     .pill.err { color: var(--pink);   border-color: rgba(244,114,182,0.25); }
+    .pill.cal { color: var(--amber);  border-color: rgba(251,191,36,0.25); }
     .pill-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-    .pill.on .pill-dot { animation: blink 2s infinite; }
+    .pill.on .pill-dot  { animation: blink 2s infinite; }
+    .pill.cal .pill-dot { animation: blink 0.6s infinite; }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
     .sec-label {
       font-family: 'JetBrains Mono', monospace;
       font-size: 9px; color: var(--muted);
@@ -80,23 +87,125 @@
       background: linear-gradient(90deg, transparent 10%, var(--accent) 50%, transparent 90%);
       opacity: 0.2;
     }
+
+    /* ── CALIBRATION OVERLAY ── */
+    .cal-overlay {
+      position: fixed; inset: 0; z-index: 100;
+      background: rgba(7,7,15,0.96);
+      display: flex; align-items: center; justify-content: center;
+      padding: 24px;
+      transition: opacity 0.4s;
+    }
+    .cal-overlay.hidden { opacity: 0; pointer-events: none; }
+    .cal-box {
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      border-radius: 24px;
+      padding: 32px 28px;
+      max-width: 360px; width: 100%;
+      text-align: center;
+      position: relative;
+    }
+    .cal-box::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+      background: linear-gradient(90deg, transparent 10%, var(--amber) 50%, transparent 90%);
+    }
+    .cal-step-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px; color: var(--amber);
+      text-transform: uppercase; letter-spacing: 0.14em;
+      margin-bottom: 16px;
+    }
+    .cal-title { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 10px; }
+    .cal-desc  { font-size: 13px; color: #8888aa; line-height: 1.6; margin-bottom: 24px; }
+    .cal-illustration {
+      width: 120px; height: 120px; margin: 0 auto 24px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .cal-progress {
+      display: flex; gap: 6px; justify-content: center; margin-bottom: 24px;
+    }
+    .cal-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--border2); transition: background 0.3s;
+    }
+    .cal-dot.done   { background: var(--green); }
+    .cal-dot.active { background: var(--amber); }
+    .cal-btn {
+      width: 100%;
+      padding: 14px;
+      background: var(--amber);
+      border: none; border-radius: 12px;
+      font-family: 'Syne', sans-serif;
+      font-size: 14px; font-weight: 700;
+      color: #07070f; cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+    }
+    .cal-btn:hover  { opacity: 0.9; }
+    .cal-btn:active { transform: scale(0.98); }
+    .cal-btn.secondary {
+      background: transparent;
+      border: 1px solid var(--border2);
+      color: var(--muted); margin-top: 8px;
+      font-size: 12px;
+    }
+
+    /* ── CONTROL BUTTONS ── */
+    .controls-row {
+      display: grid; grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px; margin-bottom: 10px;
+    }
+    .ctrl-btn {
+      padding: 12px 8px;
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      border-radius: 14px;
+      font-family: 'Syne', sans-serif;
+      font-size: 12px; font-weight: 700;
+      color: var(--muted);
+      cursor: pointer;
+      display: flex; flex-direction: column;
+      align-items: center; gap: 5px;
+      transition: all 0.2s;
+      position: relative; overflow: hidden;
+    }
+    .ctrl-btn::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+      background: currentColor; opacity: 0.15;
+    }
+    .ctrl-btn:hover:not(:disabled) { transform: translateY(-1px); }
+    .ctrl-btn:active:not(:disabled) { transform: scale(0.97); }
+    .ctrl-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+    .ctrl-btn.start { color: var(--green);  border-color: rgba(52,211,153,0.2); }
+    .ctrl-btn.reset { color: var(--amber);  border-color: rgba(251,191,36,0.2); }
+    .ctrl-btn.stop  { color: var(--red);    border-color: rgba(248,113,113,0.2); }
+    .ctrl-btn.end   { color: var(--purple); border-color: rgba(167,139,250,0.2); }
+    .ctrl-btn .icon { font-size: 18px; }
+    .ctrl-btn .lbl  {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px; text-transform: uppercase; letter-spacing: 0.08em;
+    }
+
+    /* ── 3D MODEL ── */
     .model-header {
       display: flex; align-items: center; justify-content: space-between;
       padding: 12px 16px 0;
     }
-    #threeCanvas { display: block; width: 100%; height: 220px; border-radius: 0 0 20px 20px; }
+    #threeCanvas { display: block; width: 100%; height: 200px; }
     .imu-readout {
       display: grid; grid-template-columns: repeat(6, 1fr);
-      gap: 0; border-top: 1px solid var(--border);
+      border-top: 1px solid var(--border);
     }
     .imu-cell {
-      padding: 8px 4px; display: flex; flex-direction: column;
+      padding: 7px 4px; display: flex; flex-direction: column;
       align-items: center; gap: 2px; border-right: 1px solid var(--border);
     }
     .imu-cell:last-child { border-right: none; }
     .imu-lbl { font-family: 'JetBrains Mono', monospace; font-size: 8px; color: var(--muted); text-transform: uppercase; }
     .imu-val { font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 500; color: var(--accent); font-variant-numeric: tabular-nums; }
     .imu-val.a { color: var(--purple); }
+
+    /* ── PADDLE MAP + ZONES ── */
     .main-row {
       display: grid; grid-template-columns: 180px 1fr;
       gap: 10px; margin-bottom: 10px; align-items: start;
@@ -137,6 +246,8 @@
     .zc-val   { font-size: 13px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; transition: color 0.2s; }
     .zc.active .zc-val   { color: var(--zc); }
     .zc.active .zc-label { color: color-mix(in srgb, var(--zc) 50%, var(--muted)); }
+
+    /* ── STATS ── */
     .stats-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 10px; }
     .stat-card {
       background: var(--surface); border: 1px solid var(--border2);
@@ -145,23 +256,226 @@
     }
     .stat-val  { font-size: 24px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
     .stat-lbl  { font-family: 'JetBrains Mono', monospace; font-size: 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; }
+
+    /* ── SHOT BADGE ── */
     .shot-card { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; margin-bottom: 10px; }
     .shot-left { display: flex; flex-direction: column; gap: 3px; }
     .shot-type { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; color: var(--accent); transition: color 0.3s; }
     .shot-speed { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--muted); }
     .shot-icon { font-size: 28px; }
+
+    /* ── SHOT HISTORY ── */
+    .history-card { padding: 0; margin-bottom: 10px; }
+    .history-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 16px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .history-header-left { display: flex; align-items: center; gap: 8px; }
+    .history-count {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; color: var(--accent);
+      background: rgba(110,231,247,0.08);
+      border: 1px solid rgba(110,231,247,0.15);
+      border-radius: 20px; padding: 2px 8px;
+    }
+    .history-clear {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px; color: var(--muted); background: none;
+      border: none; cursor: pointer; text-transform: uppercase; letter-spacing: 0.08em;
+    }
+    .history-clear:hover { color: var(--accent); }
+    .history-list {
+      max-height: 220px; overflow-y: auto; scrollbar-width: none;
+    }
+    .history-list::-webkit-scrollbar { display: none; }
+    .history-item {
+      display: flex; align-items: center;
+      padding: 8px 16px; gap: 10px;
+      border-bottom: 1px solid var(--border);
+      animation: slideIn 0.2s ease-out;
+    }
+    .history-item:last-child { border-bottom: none; }
+    @keyframes slideIn { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:none; } }
+    .history-num {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px; color: var(--muted); min-width: 22px;
+    }
+    .history-zone {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; font-weight: 500;
+      min-width: 22px;
+    }
+    .history-type { font-size: 12px; font-weight: 600; flex: 1; }
+    .history-force {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; color: var(--muted); min-width: 30px; text-align: right;
+    }
+    .history-speed {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px; color: var(--muted); min-width: 50px; text-align: right;
+    }
+    .history-empty {
+      padding: 24px 16px; text-align: center;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; color: var(--muted);
+    }
+
+    /* ── FEED ── */
     .feed-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-    .feed-clear { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--muted); background: none; border: none; cursor: pointer; text-transform: uppercase; letter-spacing: 0.08em; padding: 0; }
+    .feed-clear { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--muted); background: none; border: none; cursor: pointer; text-transform: uppercase; letter-spacing: 0.08em; }
     .feed-clear:hover { color: var(--accent); }
-    .feed { background: #050509; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; height: 90px; overflow-y: auto; scrollbar-width: none; }
+    .feed { background: #050509; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; height: 80px; overflow-y: auto; scrollbar-width: none; margin-bottom: 10px; }
     .feed::-webkit-scrollbar { display: none; }
     .feed-item { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--muted); padding: 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .feed-item.h { color: var(--accent); }
     .feed-item.s { color: var(--green); }
     .feed-item.i { color: #1e1e3a; }
+
+    /* ── POST-SESSION OVERLAY ── */
+    .session-overlay {
+      position: fixed; inset: 0; z-index: 90;
+      background: rgba(7,7,15,0.97);
+      overflow-y: auto;
+      padding: 24px 16px 60px;
+      transition: opacity 0.4s;
+    }
+    .session-overlay.hidden { opacity: 0; pointer-events: none; }
+    .session-report {
+      max-width: 480px; margin: 0 auto;
+    }
+    .report-header {
+      text-align: center; padding: 32px 0 24px;
+    }
+    .report-title {
+      font-size: 28px; font-weight: 800; letter-spacing: -1px;
+      margin-bottom: 4px;
+    }
+    .report-title em { font-style: normal; color: var(--accent); }
+    .report-sub {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.14em;
+    }
+    .report-stats {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 8px; margin-bottom: 16px;
+    }
+    .report-stat {
+      background: var(--surface); border: 1px solid var(--border2);
+      border-radius: 16px; padding: 16px;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .report-stat-val { font-size: 28px; font-weight: 800; line-height: 1; }
+    .report-stat-lbl { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--muted); text-transform: uppercase; }
+    .report-card {
+      background: var(--surface); border: 1px solid var(--border2);
+      border-radius: 20px; padding: 16px; margin-bottom: 10px; position: relative; overflow: hidden;
+    }
+    .report-card::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+      background: linear-gradient(90deg, transparent 10%, var(--purple) 50%, transparent 90%);
+      opacity: 0.3;
+    }
+    .report-card-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.12em;
+      margin-bottom: 14px;
+    }
+
+    /* Bar chart */
+    .bar-chart { display: flex; flex-direction: column; gap: 8px; }
+    .bar-row { display: flex; align-items: center; gap: 10px; }
+    .bar-lbl { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--muted); min-width: 28px; }
+    .bar-track { flex: 1; height: 8px; background: var(--dim); border-radius: 4px; overflow: hidden; }
+    .bar-fill  { height: 100%; border-radius: 4px; transition: width 0.8s cubic-bezier(0.16,1,0.3,1); }
+    .bar-count { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--muted); min-width: 20px; text-align: right; }
+
+    /* Force timeline */
+    .force-chart { position: relative; height: 80px; }
+    .force-chart canvas { width: 100%; height: 100%; }
+
+    /* Shot type donut */
+    .shot-breakdown { display: flex; flex-direction: column; gap: 6px; }
+    .shot-row { display: flex; align-items: center; gap: 10px; }
+    .shot-row-icon  { font-size: 14px; min-width: 20px; }
+    .shot-row-lbl   { font-size: 12px; font-weight: 600; flex: 1; }
+    .shot-row-count { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--muted); }
+    .shot-row-bar   { width: 60px; height: 4px; background: var(--dim); border-radius: 2px; overflow: hidden; }
+    .shot-row-fill  { height: 100%; border-radius: 2px; }
+
+    /* New session button */
+    .new-session-btn {
+      width: 100%; padding: 16px;
+      background: linear-gradient(135deg, var(--accent), var(--purple));
+      border: none; border-radius: 16px;
+      font-family: 'Syne', sans-serif;
+      font-size: 16px; font-weight: 800;
+      color: #07070f; cursor: pointer;
+      margin-top: 8px;
+      transition: opacity 0.2s, transform 0.1s;
+    }
+    .new-session-btn:hover  { opacity: 0.9; }
+    .new-session-btn:active { transform: scale(0.98); }
   </style>
 </head>
 <body>
+
+<!-- ═══════════════════════════════ CALIBRATION OVERLAY ═══════════════════════════════ -->
+<div class="cal-overlay" id="calOverlay">
+  <div class="cal-box">
+    <div class="cal-step-label" id="calStepLabel">Step 1 of 3 · Calibration</div>
+    <div class="cal-title" id="calTitle">Hold Paddle Upright</div>
+    <div class="cal-illustration" id="calIllustration">
+      <!-- SVG illustration changes per step -->
+    </div>
+    <div class="cal-desc" id="calDesc">Hold the paddle vertically with the handle pointing down, face pointing toward you. Keep it still.</div>
+    <div class="cal-progress">
+      <div class="cal-dot active" id="cdot0"></div>
+      <div class="cal-dot"        id="cdot1"></div>
+      <div class="cal-dot"        id="cdot2"></div>
+    </div>
+    <button class="cal-btn" id="calBtn" onclick="calCapture()">Capture Position</button>
+    <button class="cal-btn secondary" onclick="skipCalibration()">Skip Calibration</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════ POST-SESSION OVERLAY ═══════════════════════════════ -->
+<div class="session-overlay hidden" id="sessionOverlay">
+  <div class="session-report">
+    <div class="report-header">
+      <div class="report-title">Session <em>Complete</em></div>
+      <div class="report-sub" id="reportDuration">—</div>
+    </div>
+
+    <div class="report-stats" id="reportStats"></div>
+
+    <!-- Hits per zone bar chart -->
+    <div class="report-card">
+      <div class="report-card-title">Hits per zone</div>
+      <div class="bar-chart" id="zoneBarChart"></div>
+    </div>
+
+    <!-- Force timeline -->
+    <div class="report-card">
+      <div class="report-card-title">Force over time</div>
+      <div class="force-chart">
+        <canvas id="forceCanvas"></canvas>
+      </div>
+    </div>
+
+    <!-- Shot type breakdown -->
+    <div class="report-card">
+      <div class="report-card-title">Shot breakdown</div>
+      <div class="shot-breakdown" id="shotBreakdown"></div>
+    </div>
+
+    <button class="new-session-btn" onclick="startNewSession()">Start New Session</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════ MAIN UI ═══════════════════════════════ -->
 <div class="wrap">
 
   <div class="header">
@@ -175,8 +489,31 @@
     </div>
   </div>
 
+  <!-- CONTROLS -->
+  <div class="sec-label">Session controls</div>
+  <div class="controls-row" style="margin-bottom:10px;">
+    <button class="ctrl-btn start" id="btnStart" onclick="webStart()" disabled>
+      <span class="icon">▶</span><span class="lbl">Start</span>
+    </button>
+    <button class="ctrl-btn reset" id="btnReset" onclick="webReset()" disabled>
+      <span class="icon">↺</span><span class="lbl">Reset</span>
+    </button>
+    <button class="ctrl-btn stop" id="btnShutdown" onclick="webShutdown()" disabled>
+      <span class="icon">⏻</span><span class="lbl">Shutdown</span>
+    </button>
+  </div>
+  <div class="controls-row" style="margin-bottom:10px; grid-template-columns: 1fr 1fr;">
+    <button class="ctrl-btn" id="btnCalibrate" onclick="startCalibration()" style="color:var(--amber);border-color:rgba(251,191,36,0.2);" disabled>
+      <span class="icon">⊕</span><span class="lbl">Calibrate</span>
+    </button>
+    <button class="ctrl-btn end" id="btnEndSession" onclick="endSession()" disabled>
+      <span class="icon">◼</span><span class="lbl">End Session</span>
+    </button>
+  </div>
+
+  <!-- 3D MODEL -->
   <div class="sec-label">Paddle orientation</div>
-  <div class="card model-card" style="margin-bottom:10px;">
+  <div class="card" style="margin-bottom:10px;">
     <div class="model-header">
       <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;">3D · Madgwick (JS)</span>
       <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--muted);" id="gyroHz">— Hz</span>
@@ -192,6 +529,7 @@
     </div>
   </div>
 
+  <!-- PADDLE MAP + ZONES -->
   <div class="sec-label">Zone map</div>
   <div class="main-row">
     <div class="card paddle-map-card">
@@ -238,12 +576,14 @@
     </div>
   </div>
 
+  <!-- STATS -->
   <div class="stats-row">
     <div class="stat-card"><div class="stat-val" style="color:var(--accent)"  id="hitCount">0</div><div class="stat-lbl">Hits</div></div>
     <div class="stat-card"><div class="stat-val" style="color:var(--purple)" id="peakZone">—</div><div class="stat-lbl">Peak zone</div></div>
     <div class="stat-card"><div class="stat-val" style="color:var(--pink)"   id="peakVal">—</div><div class="stat-lbl">Peak force</div></div>
   </div>
 
+  <!-- LAST SHOT -->
   <div class="card shot-card" style="margin-bottom:10px;">
     <div class="shot-left">
       <div class="sec-label" style="margin:0">Last shot</div>
@@ -253,6 +593,22 @@
     <div class="shot-icon" id="shotIcon">🏓</div>
   </div>
 
+  <!-- SHOT HISTORY -->
+  <div class="sec-label">Shot history</div>
+  <div class="card history-card" style="margin-bottom:10px;">
+    <div class="history-header">
+      <div class="history-header-left">
+        <span style="font-size:13px;font-weight:700;">This Session</span>
+        <span class="history-count" id="historyCount">0</span>
+      </div>
+      <button class="history-clear" onclick="clearHistory()">Clear</button>
+    </div>
+    <div class="history-list" id="historyList">
+      <div class="history-empty" id="historyEmpty">No hits yet — start a session</div>
+    </div>
+  </div>
+
+  <!-- DATA STREAM -->
   <div class="feed-header">
     <div class="sec-label" style="margin:0">Data stream</div>
     <button class="feed-clear" onclick="clearFeed()">Clear</button>
@@ -264,355 +620,700 @@
 </div>
 
 <script>
-// ═══════════════════════════════════════════════════════════════
-// MADGWICK FILTER — runs in JS, uses Arduino micros() for dt
-//
-// Why Arduino timestamp instead of performance.now() for dt:
-//   - BLE can buffer/delay packets arbitrarily (jitter)
-//   - If two packets arrive 80ms apart at the browser but were
-//     sampled 5ms apart on the sensor, performance.now() dt would
-//     make the filter integrate 16x too much rotation → jumps
-//   - Arduino micros() reflects the true inter-sample interval
-//   - Overflow handled: micros() wraps at 2^32 (~70 min)
-// ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+// MADGWICK FILTER
+// ═══════════════════════════════════════════════════════
 const Madgwick = (() => {
-  // Beta: how aggressively accel corrects gyro drift.
-  // 0.033 = original Madgwick paper value at ~100Hz.
-  // Raise if orientation feels sluggish; lower if jittery.
-  const beta = 0.033;
-
-  let q0 = 1, q1 = 0, q2 = 0, q3 = 0;
-
-  // Last Arduino micros() timestamp — used to compute true dt
+  let beta = 0.033;
+  let q0=1, q1=0, q2=0, q3=0;
   let lastArduinoUs = null;
 
-  // Hz tracking for display
-  let _hzCount = 0, _hzLast = performance.now();
+  // Calibration offset quaternion (identity = no correction)
+  let calOffset = { w:1, x:0, y:0, z:0 };
+
+  let _hzCount=0, _hzLast=performance.now();
 
   function update(gx, gy, gz, ax, ay, az, arduinoUs) {
-    // ── Compute dt from Arduino's own clock ──
-    let dt = 0.01; // safe default for very first sample
+    let dt = 0.01;
     if (lastArduinoUs !== null) {
-      // Handle micros() overflow (wraps at 2^32 ≈ 71 min)
       let diff = arduinoUs - lastArduinoUs;
       if (diff < 0) diff += 4294967296;
       dt = diff / 1e6;
-      // Clamp: ignore stale/corrupt packets
       if (dt <= 0 || dt > 0.5) dt = 0.01;
     }
     lastArduinoUs = arduinoUs;
 
-    // ── Hz display (uses wall clock — just for the counter) ──
     _hzCount++;
     const now = performance.now();
     if (now - _hzLast >= 1000) {
       document.getElementById('gyroHz').textContent = _hzCount + ' Hz';
-      _hzCount = 0;
-      _hzLast  = now;
+      _hzCount=0; _hzLast=now;
     }
 
-    // ── Convert gyro deg/s → rad/s ──
-    const D2R = Math.PI / 180;
+    const D2R = Math.PI/180;
     gx *= D2R; gy *= D2R; gz *= D2R;
 
-    // ── Rate of change of quaternion from gyroscope ──
-    let qDot0 = 0.5 * (-q1*gx - q2*gy - q3*gz);
-    let qDot1 = 0.5 * ( q0*gx + q2*gz - q3*gy);
-    let qDot2 = 0.5 * ( q0*gy - q1*gz + q3*gx);
-    let qDot3 = 0.5 * ( q0*gz + q1*gy - q2*gx);
+    let qDot0 = 0.5*(-q1*gx - q2*gy - q3*gz);
+    let qDot1 = 0.5*( q0*gx + q2*gz - q3*gy);
+    let qDot2 = 0.5*( q0*gy - q1*gz + q3*gx);
+    let qDot3 = 0.5*( q0*gz + q1*gy - q2*gx);
 
-    // ── Accelerometer correction ──
-    // Skip during hard swings (accel >> 1g means linear acceleration
-    // is dominating — not a reliable gravity reference)
-    const accelMag = Math.sqrt(ax*ax + ay*ay + az*az);
-    if (accelMag > 0.5 && accelMag < 8.0) {
-      const rn = 1 / accelMag;
-      ax *= rn; ay *= rn; az *= rn;
-
-      const _2q0 = 2*q0, _2q1 = 2*q1, _2q2 = 2*q2, _2q3 = 2*q3;
-      const _4q0 = 4*q0, _4q1 = 4*q1, _4q2 = 4*q2;
-      const _8q1 = 8*q1, _8q2 = 8*q2;
-      const q0q0 = q0*q0, q1q1 = q1*q1, q2q2 = q2*q2, q3q3 = q3*q3;
-
-      let s0 = _4q0*q2q2 + _2q2*ax + _4q0*q1q1 - _2q1*ay;
-      let s1 = _4q1*q3q3 - _2q3*ax + 4*q0q0*q1 - _2q0*ay - _4q1 + _8q1*q1q1 + _8q1*q2q2 + _4q1*az;
-      let s2 = 4*q0q0*q2 + _2q0*ax + _4q2*q3q3 - _2q3*ay - _4q2 + _8q2*q1q1 + _8q2*q2q2 + _4q2*az;
-      let s3 = 4*q1q1*q3 - _2q1*ax + 4*q2q2*q3 - _2q2*ay;
-
-      const sn = 1 / Math.sqrt(s0*s0 + s1*s1 + s2*s2 + s3*s3);
-      s0 *= sn; s1 *= sn; s2 *= sn; s3 *= sn;
-
-      qDot0 -= beta * s0;
-      qDot1 -= beta * s1;
-      qDot2 -= beta * s2;
-      qDot3 -= beta * s3;
+    const mag = Math.sqrt(ax*ax+ay*ay+az*az);
+    if (mag > 0.5 && mag < 8.0) {
+      const rn = 1/mag;
+      ax*=rn; ay*=rn; az*=rn;
+      const _2q0=2*q0,_2q1=2*q1,_2q2=2*q2,_2q3=2*q3;
+      const _4q0=4*q0,_4q1=4*q1,_4q2=4*q2;
+      const _8q1=8*q1,_8q2=8*q2;
+      const q0q0=q0*q0,q1q1=q1*q1,q2q2=q2*q2,q3q3=q3*q3;
+      let s0=_4q0*q2q2+_2q2*ax+_4q0*q1q1-_2q1*ay;
+      let s1=_4q1*q3q3-_2q3*ax+4*q0q0*q1-_2q0*ay-_4q1+_8q1*q1q1+_8q1*q2q2+_4q1*az;
+      let s2=4*q0q0*q2+_2q0*ax+_4q2*q3q3-_2q3*ay-_4q2+_8q2*q1q1+_8q2*q2q2+_4q2*az;
+      let s3=4*q1q1*q3-_2q1*ax+4*q2q2*q3-_2q2*ay;
+      const sn=1/Math.sqrt(s0*s0+s1*s1+s2*s2+s3*s3);
+      s0*=sn; s1*=sn; s2*=sn; s3*=sn;
+      qDot0-=beta*s0; qDot1-=beta*s1; qDot2-=beta*s2; qDot3-=beta*s3;
     }
 
-    // ── Integrate using true dt ──
-    q0 += qDot0 * dt;
-    q1 += qDot1 * dt;
-    q2 += qDot2 * dt;
-    q3 += qDot3 * dt;
-
-    // ── Normalise ──
-    const norm = 1 / Math.sqrt(q0*q0 + q1*q1 + q2*q2 + q3*q3);
-    q0 *= norm; q1 *= norm; q2 *= norm; q3 *= norm;
+    q0+=qDot0*dt; q1+=qDot1*dt; q2+=qDot2*dt; q3+=qDot3*dt;
+    const norm=1/Math.sqrt(q0*q0+q1*q1+q2*q2+q3*q3);
+    q0*=norm; q1*=norm; q2*=norm; q3*=norm;
   }
 
-  function getQuaternion() { return { w: q0, x: q1, y: q2, z: q3 }; }
+  // Capture current orientation as the "reference" for a known position.
+  // Returns the inverse of current quaternion — apply this to cancel offset.
+  function captureCalibration() {
+    // Store inverse (conjugate for unit quat) of current orientation
+    calOffset = { w:q0, x:-q1, y:-q2, z:-q3 };
+  }
+
+  // Multiply two quaternions
+  function qMul(a, b) {
+    return {
+      w: a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z,
+      x: a.w*b.x + a.x*b.w + a.y*b.z - a.z*b.y,
+      y: a.w*b.y - a.x*b.z + a.y*b.w + a.z*b.x,
+      z: a.w*b.z + a.x*b.y - a.y*b.x + a.z*b.w,
+    };
+  }
+
+  function getQuaternion() {
+    // Apply calibration offset
+    const raw = { w:q0, x:q1, y:q2, z:q3 };
+    return qMul(calOffset, raw);
+  }
 
   function getEuler() {
-    const pitch = Math.atan2(2*(q0*q1 + q2*q3), 1 - 2*(q1*q1 + q2*q2)) * (180/Math.PI);
-    const yaw   = Math.asin(Math.max(-1, Math.min(1, 2*(q0*q2 - q3*q1)))) * (180/Math.PI);
-    const roll  = Math.atan2(2*(q0*q3 + q1*q2), 1 - 2*(q2*q2 + q3*q3)) * (180/Math.PI);
+    const q = getQuaternion();
+    const pitch = Math.atan2(2*(q.w*q.x+q.y*q.z), 1-2*(q.x*q.x+q.y*q.y)) * (180/Math.PI);
+    const yaw   = Math.asin(Math.max(-1,Math.min(1,2*(q.w*q.y-q.z*q.x)))) * (180/Math.PI);
+    const roll  = Math.atan2(2*(q.w*q.z+q.x*q.y), 1-2*(q.y*q.y+q.z*q.z)) * (180/Math.PI);
     return { pitch, roll, yaw };
   }
 
-  function reset() { q0=1; q1=0; q2=0; q3=0; lastArduinoUs=null; }
+  function reset() { q0=1;q1=0;q2=0;q3=0; lastArduinoUs=null; calOffset={w:1,x:0,y:0,z:0}; }
 
-  return { update, getQuaternion, getEuler, reset };
+  return { update, captureCalibration, getQuaternion, getEuler, reset };
 })();
 
 
-// ═══════════════════════════════════════════════
-// THREE.JS — 3D PADDLE MODEL
-// ═══════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+// CALIBRATION FLOW
+// 3 steps: handle down (neutral), face forward, handle left
+// ═══════════════════════════════════════════════════════
+const CAL_STEPS = [
+  {
+    label: 'Step 1 of 3 · Calibration',
+    title: 'Hold Paddle Upright',
+    desc:  'Hold the paddle vertically, handle pointing straight down, face pointing toward you. Keep it perfectly still.',
+    svg:   `<svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <ellipse cx="40" cy="28" rx="22" ry="20" fill="#1a1a3a" stroke="#6ee7f7" stroke-width="1.5"/>
+              <rect x="34" y="48" width="12" height="22" rx="4" fill="#0e0e1e" stroke="#383860" stroke-width="1.2"/>
+              <text x="40" y="31" text-anchor="middle" fill="#6ee7f7" font-size="8" font-family="monospace">FACE</text>
+              <line x1="40" y1="58" x2="40" y2="70" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="2,2"/>
+              <text x="40" y="78" text-anchor="middle" fill="#fbbf24" font-size="7" font-family="monospace">↓ down</text>
+            </svg>`
+  },
+  {
+    label: 'Step 2 of 3 · Calibration',
+    title: 'Lay Paddle Flat',
+    desc:  'Lay the paddle face-up on a flat surface, or hold it horizontally with the face pointing straight up toward the ceiling.',
+    svg:   `<svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <ellipse cx="40" cy="42" rx="30" ry="10" fill="#1a1a3a" stroke="#6ee7f7" stroke-width="1.5"/>
+              <rect x="34" y="52" width="12" height="16" rx="4" fill="#0e0e1e" stroke="#383860" stroke-width="1.2"/>
+              <text x="40" y="45" text-anchor="middle" fill="#6ee7f7" font-size="7" font-family="monospace">FACE UP</text>
+              <line x1="40" y1="32" x2="40" y2="20" stroke="#fbbf24" stroke-width="1.5"/>
+              <text x="40" y="16" text-anchor="middle" fill="#fbbf24" font-size="7" font-family="monospace">↑ up</text>
+            </svg>`
+  },
+  {
+    label: 'Step 3 of 3 · Calibration',
+    title: 'Point Handle Left',
+    desc:  'Hold the paddle horizontally with the handle pointing to your left side. Face can point up or toward you.',
+    svg:   `<svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <ellipse cx="44" cy="40" rx="20" ry="22" fill="#1a1a3a" stroke="#6ee7f7" stroke-width="1.5"/>
+              <rect x="10" y="36" width="22" height="8" rx="4" fill="#0e0e1e" stroke="#383860" stroke-width="1.2"/>
+              <text x="44" y="43" text-anchor="middle" fill="#6ee7f7" font-size="7" font-family="monospace">FACE</text>
+              <line x1="10" y1="40" x2="2" y2="40" stroke="#fbbf24" stroke-width="1.5"/>
+              <text x="5" y="36" text-anchor="middle" fill="#fbbf24" font-size="7" font-family="monospace">←</text>
+            </svg>`
+  },
+];
+
+let calStep = 0;
+let calCaptures = [];
+
+function startCalibration() {
+  calStep = 0;
+  calCaptures = [];
+  updateCalUI();
+  document.getElementById('calOverlay').classList.remove('hidden');
+}
+
+function updateCalUI() {
+  const s = CAL_STEPS[calStep];
+  document.getElementById('calStepLabel').textContent = s.label;
+  document.getElementById('calTitle').textContent = s.title;
+  document.getElementById('calDesc').textContent  = s.desc;
+  document.getElementById('calIllustration').innerHTML = s.svg;
+  for (let i = 0; i < 3; i++) {
+    const dot = document.getElementById('cdot' + i);
+    dot.className = 'cal-dot' + (i < calStep ? ' done' : i === calStep ? ' active' : '');
+  }
+}
+
+function calCapture() {
+  // Take a snapshot of the current orientation
+  Madgwick.captureCalibration();
+  calCaptures.push(calStep);
+
+  calStep++;
+  if (calStep >= CAL_STEPS.length) {
+    // Done
+    document.getElementById('calOverlay').classList.add('hidden');
+    setPill('on', 'Calibrated');
+    addFeed('Calibration complete', 's');
+  } else {
+    updateCalUI();
+  }
+}
+
+function skipCalibration() {
+  document.getElementById('calOverlay').classList.add('hidden');
+  addFeed('Calibration skipped', 'i');
+}
+
+
+// ═══════════════════════════════════════════════════════
+// THREE.JS
+// ═══════════════════════════════════════════════════════
 (function() {
   const canvas = document.getElementById('threeCanvas');
   const W = canvas.parentElement.clientWidth;
-  const H = 220;
-  canvas.width  = W;
-  canvas.height = H;
+  const H = 200;
+  canvas.width=W; canvas.height=H;
 
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-  renderer.setSize(W, H);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.setClearColor(0x000000, 0);
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
+  renderer.setSize(W,H);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+  renderer.setClearColor(0x000000,0);
 
   const scene  = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(40, W / H, 0.1, 100);
-  camera.position.set(0, 0.5, 5);
-  camera.lookAt(0, 0, 0);
+  const camera = new THREE.PerspectiveCamera(40, W/H, 0.1, 100);
+  camera.position.set(0,0.5,5); camera.lookAt(0,0,0);
 
-  scene.add(new THREE.AmbientLight(0x8888cc, 0.6));
-  const kl = new THREE.DirectionalLight(0x6ee7f7, 1.2); kl.position.set(3, 5, 3); scene.add(kl);
-  const rl = new THREE.DirectionalLight(0xa78bfa, 0.6); rl.position.set(-3, -2, -3); scene.add(rl);
-  const fl = new THREE.PointLight(0x34d399, 0.3, 20);   fl.position.set(0, -3, 2);  scene.add(fl);
+  scene.add(new THREE.AmbientLight(0x8888cc,0.6));
+  const kl=new THREE.DirectionalLight(0x6ee7f7,1.2); kl.position.set(3,5,3); scene.add(kl);
+  const rl=new THREE.DirectionalLight(0xa78bfa,0.6); rl.position.set(-3,-2,-3); scene.add(rl);
+  const fl=new THREE.PointLight(0x34d399,0.3,20); fl.position.set(0,-3,2); scene.add(fl);
 
   const paddleGroup = new THREE.Group();
   scene.add(paddleGroup);
 
-  // Head
   const head = new THREE.Mesh(
-    new THREE.SphereGeometry(1, 32, 20),
-    new THREE.MeshPhongMaterial({ color: 0x1a1a3a, specular: 0x6ee7f7, shininess: 60, transparent: true, opacity: 0.92 })
+    new THREE.SphereGeometry(1,32,20),
+    new THREE.MeshPhongMaterial({color:0x1a1a3a,specular:0x6ee7f7,shininess:60,transparent:true,opacity:0.92})
   );
-  head.scale.set(1.1, 1.35, 0.12); head.position.y = 0.5;
-  paddleGroup.add(head);
+  head.scale.set(1.1,1.35,0.12); head.position.y=0.5; paddleGroup.add(head);
 
-  // Edge ring
   const edge = new THREE.Mesh(
-    new THREE.TorusGeometry(1.0, 0.04, 8, 60),
-    new THREE.MeshPhongMaterial({ color: 0x4040a0, specular: 0x8888ff, shininess: 80 })
+    new THREE.TorusGeometry(1.0,0.04,8,60),
+    new THREE.MeshPhongMaterial({color:0x4040a0,specular:0x8888ff,shininess:80})
   );
-  edge.scale.set(1.1, 1.35, 1); edge.position.y = 0.5;
-  paddleGroup.add(edge);
+  edge.scale.set(1.1,1.35,1); edge.position.y=0.5; paddleGroup.add(edge);
 
-  // Zone grid lines
-  const lm = new THREE.LineBasicMaterial({ color: 0x2a2a5a, transparent: true, opacity: 0.6 });
-  [-0.35, 0.35].forEach(x => {
-    paddleGroup.add(new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x,-0.4,0.07), new THREE.Vector3(x,1.4,0.07)]), lm
-    ));
+  const lm=new THREE.LineBasicMaterial({color:0x2a2a5a,transparent:true,opacity:0.6});
+  [-0.35,0.35].forEach(x=>{
+    paddleGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x,-0.4,0.07),new THREE.Vector3(x,1.4,0.07)]),lm));
   });
-  [-0.2, 0.3, 0.8, 1.3].forEach(y => {
-    paddleGroup.add(new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-0.9,y,0.07), new THREE.Vector3(0.9,y,0.07)]), lm
-    ));
+  [-0.2,0.3,0.8,1.3].forEach(y=>{
+    paddleGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-0.9,y,0.07),new THREE.Vector3(0.9,y,0.07)]),lm));
   });
 
-  // Handle
-  const handle = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.12, 0.14, 1.4, 16),
-    new THREE.MeshPhongMaterial({ color: 0x0f0f20, specular: 0x333366, shininess: 30 })
+  const handle=new THREE.Mesh(
+    new THREE.CylinderGeometry(0.12,0.14,1.4,16),
+    new THREE.MeshPhongMaterial({color:0x0f0f20,specular:0x333366,shininess:30})
   );
-  handle.position.y = -0.85; paddleGroup.add(handle);
+  handle.position.y=-0.85; paddleGroup.add(handle);
 
-  // Grip rings
-  for (let i = 0; i < 5; i++) {
-    const g = new THREE.Mesh(new THREE.TorusGeometry(0.135, 0.012, 6, 20), new THREE.MeshPhongMaterial({ color: 0x1a1a35 }));
-    g.position.y = -0.5 - i*0.18; g.rotation.x = Math.PI/2;
-    paddleGroup.add(g);
+  for(let i=0;i<5;i++){
+    const g=new THREE.Mesh(new THREE.TorusGeometry(0.135,0.012,6,20),new THREE.MeshPhongMaterial({color:0x1a1a35}));
+    g.position.y=-0.5-i*0.18; g.rotation.x=Math.PI/2; paddleGroup.add(g);
   }
 
-  // Hit flash
-  const flashMat = new THREE.MeshBasicMaterial({ color: 0x6ee7f7, transparent: true, opacity: 0, side: THREE.DoubleSide });
-  const flashPlane = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 2.8), flashMat);
-  flashPlane.position.set(0, 0.5, 0.14); paddleGroup.add(flashPlane);
+  const flashMat=new THREE.MeshBasicMaterial({color:0x6ee7f7,transparent:true,opacity:0,side:THREE.DoubleSide});
+  const flashPlane=new THREE.Mesh(new THREE.PlaneGeometry(2.2,2.8),flashMat);
+  flashPlane.position.set(0,0.5,0.14); paddleGroup.add(flashPlane);
 
-  let idleRotation = true;
-  let idleAngle    = 0;
-  const threeQuat  = new THREE.Quaternion();
+  let idleRotation=true, idleAngle=0;
+  const threeQuat=new THREE.Quaternion();
 
-  window.setOrientationActive = () => { idleRotation = false; };
-
-  window.triggerHitFlash = function() {
-    flashMat.opacity = 0.4;
-    const start = performance.now();
-    (function fade() {
-      const t = (performance.now() - start) / 400;
-      flashMat.opacity = Math.max(0, 0.4 * (1 - t));
-      if (t < 1) requestAnimationFrame(fade);
-    })();
+  window.setOrientationActive=()=>{ idleRotation=false; };
+  window.triggerHitFlash=function(){
+    flashMat.opacity=0.4;
+    const start=performance.now();
+    (function fade(){ const t=(performance.now()-start)/400; flashMat.opacity=Math.max(0,0.4*(1-t)); if(t<1)requestAnimationFrame(fade); })();
   };
 
-  (function animate() {
+  (function animate(){
     requestAnimationFrame(animate);
-    if (idleRotation) {
-      idleAngle += 0.008;
-      paddleGroup.rotation.y = Math.sin(idleAngle) * 0.4;
-      paddleGroup.rotation.x = Math.sin(idleAngle * 0.7) * 0.15;
+    if(idleRotation){
+      idleAngle+=0.008;
+      paddleGroup.rotation.y=Math.sin(idleAngle)*0.4;
+      paddleGroup.rotation.x=Math.sin(idleAngle*0.7)*0.15;
     } else {
-      // Pull latest quaternion from Madgwick every frame
-      // Three.js (x,y,z,w) ← Madgwick (w,x,y,z)
-      const q = Madgwick.getQuaternion();
-      threeQuat.set(q.x, q.y, q.z, q.w);
+      const q=Madgwick.getQuaternion();
+      threeQuat.set(q.x,q.y,q.z,q.w);
       paddleGroup.quaternion.copy(threeQuat);
     }
-    renderer.render(scene, camera);
+    renderer.render(scene,camera);
   })();
 
-  window.addEventListener('resize', () => {
-    const W2 = canvas.parentElement.clientWidth;
-    camera.aspect = W2 / H;
-    camera.updateProjectionMatrix();
-    renderer.setSize(W2, H);
+  window.addEventListener('resize',()=>{
+    const W2=canvas.parentElement.clientWidth;
+    camera.aspect=W2/H; camera.updateProjectionMatrix(); renderer.setSize(W2,H);
   });
 })();
 
 
-// ═══════════════════════════════════════════════
-// WEBSOCKET + DATA HANDLING
-// ═══════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+// SESSION STATE
+// ═══════════════════════════════════════════════════════
+let sessionActive  = false;
+let sessionStartMs = null;
+let hitCount  = 0;
+let peakVal   = 0;
+let peakZone  = '—';
+let shotHistory = [];  // array of hit objects for this session
+
+const ZONE_COLORS = {
+  '1': '#a78bfa', '2': '#34d399', '3': '#34d399',
+  '4': '#6ee7f7', '5': '#a78bfa', '6': '#fbbf24'
+};
+
+const SHOTS = [
+  { test:(z,v,gx,gy,gz)=>v<25,               label:'Dink / Drop',    icon:'🫧', color:'var(--green)'  },
+  { test:(z,v,gx,gy,gz)=>Math.abs(gz)>120,   label:'Spin Shot',      icon:'🌀', color:'var(--amber)'  },
+  { test:(z,v,gx,gy,gz)=>gx>140&&v>90,       label:'Smash',          icon:'💥', color:'var(--pink)'   },
+  { test:(z,v,gx,gy,gz)=>gy<-50,             label:'Forehand Drive', icon:'➡️', color:'var(--accent)' },
+  { test:(z,v,gx,gy,gz)=>gy>50,              label:'Backhand Drive', icon:'⬅️', color:'var(--purple)' },
+  { test:(z,v,gx,gy,gz)=>v>90,               label:'Power Hit',      icon:'⚡', color:'var(--pink)'   },
+  { test:()=>true,                            label:'Rally Shot',     icon:'🏓', color:'var(--accent)' },
+];
+
+function classifyShot(zNum, val, gx, gy, gz) {
+  return SHOTS.find(s => s.test(zNum, val, gx, gy, gz));
+}
+
+// ═══════════════════════════════════════════════════════
+// WEBSOCKET
+// ═══════════════════════════════════════════════════════
 const socket  = new WebSocket("ws://172.16.181.150:3000");
 const pill    = document.getElementById('pill');
 const pillLbl = document.getElementById('pillLabel');
 
-function setPill(cls, label) { pill.className = 'pill ' + cls; pillLbl.textContent = label; }
+function setPill(cls, label) { pill.className='pill '+cls; pillLbl.textContent=label; }
 
-socket.onopen  = () => { setPill('on', 'Live'); addFeed('WebSocket connected', 's'); };
-socket.onerror = () => setPill('err', 'Error');
-socket.onclose = () => setPill('err', 'Disconnected');
+socket.onopen  = () => { setPill('on','Live'); addFeed('WebSocket connected','s'); updateButtons(); };
+socket.onerror = () => { setPill('err','Error'); updateButtons(); };
+socket.onclose = () => { setPill('err','Disconnected'); updateButtons(); };
+
+function sendCmd(cmd) {
+  if (socket.readyState === WebSocket.OPEN) socket.send('CMD:' + cmd);
+}
 
 socket.onmessage = (e) => {
   const raw = e.data.toString().trim();
-  if      (raw.startsWith('HIT:')) processHit(raw.slice(4));
-  else if (raw.startsWith('IMU:')) processIMU(raw.slice(4));
-  else                             processHit(raw);
+  if      (raw.startsWith('HIT:'))    processHit(raw.slice(4));
+  else if (raw.startsWith('IMU:'))    processIMU(raw.slice(4));
+  else if (raw.startsWith('STATUS:')) processStatus(raw.slice(7));
+  else                                processHit(raw);
 };
 
-const getF = (str, k) => parseFloat(str.match(new RegExp(k + ':([-\\d.]+)'))?.[1] ?? '0');
-
-// ── IMU stream handler ──
-// Format: "T:us,GX:v,GY:v,GZ:v,AX:v,AY:v,AZ:v"
-function processIMU(data) {
-  const arduinoUs = getF(data, 'T');
-  const gx = getF(data, 'GX'), gy = getF(data, 'GY'), gz = getF(data, 'GZ');
-  const ax = getF(data, 'AX'), ay = getF(data, 'AY'), az = getF(data, 'AZ');
-
-  // Feed into Madgwick with true Arduino-side dt
-  Madgwick.update(gx, gy, gz, ax, ay, az, arduinoUs);
-  window.setOrientationActive();
-
-  // Update Euler angle readout
-  const e   = Madgwick.getEuler();
-  const fmt = v => (v >= 0 ? ' ' : '') + v.toFixed(1) + '°';
-  document.getElementById('iGX').textContent = fmt(e.pitch);
-  document.getElementById('iGY').textContent = fmt(e.roll);
-  document.getElementById('iGZ').textContent = fmt(e.yaw);
-
-  // Accel readout
-  const fmtA = v => (v >= 0 ? ' ' : '') + v.toFixed(2);
-  document.getElementById('iAX').textContent = fmtA(ax);
-  document.getElementById('iAY').textContent = fmtA(ay);
-  document.getElementById('iAZ').textContent = fmtA(az);
-
-  if (Math.random() < 0.03) addFeed(data, 'i');
+function processStatus(data) {
+  // Arduino can send STATUS:SESSION_STARTED / STATUS:SESSION_RESET etc
+  if (data === 'SESSION_STARTED') { sessionActive=true; sessionStartMs=Date.now(); updateButtons(); }
+  if (data === 'SESSION_RESET')   { resetSessionState(); updateButtons(); }
 }
 
-// ── Hit handler ──
-// Format: "Z3:180,GX:v,GY:v,GZ:v"
-let hitCount = 0, peakVal = 0;
+// ═══════════════════════════════════════════════════════
+// BUTTON STATE MANAGEMENT
+// ═══════════════════════════════════════════════════════
+function updateButtons() {
+  const connected = socket.readyState === WebSocket.OPEN;
+  document.getElementById('btnStart').disabled    = !connected || sessionActive;
+  document.getElementById('btnReset').disabled    = !connected;
+  document.getElementById('btnShutdown').disabled = !connected;
+  document.getElementById('btnCalibrate').disabled= !connected;
+  document.getElementById('btnEndSession').disabled = !connected || !sessionActive;
+}
 
+function webStart() {
+  sendCmd('START');
+  sessionActive  = true;
+  sessionStartMs = Date.now();
+  updateButtons();
+  addFeed('Session started from web','s');
+}
+
+function webReset() {
+  if (!confirm('Reset session? This clears all current hit data.')) return;
+  sendCmd('RESET');
+  resetSessionState();
+  Madgwick.reset();
+  addFeed('Session reset from web','s');
+}
+
+function webShutdown() {
+  if (!confirm('Send shutdown signal to paddle?')) return;
+  sendCmd('SHUTDOWN');
+  addFeed('Shutdown command sent','s');
+}
+
+function resetSessionState() {
+  sessionActive  = false;
+  sessionStartMs = null;
+  hitCount  = 0;
+  peakVal   = 0;
+  peakZone  = '—';
+  shotHistory = [];
+  document.getElementById('hitCount').textContent = '0';
+  document.getElementById('peakZone').textContent = '—';
+  document.getElementById('peakVal').textContent  = '—';
+  document.getElementById('shotType').textContent = 'Waiting...';
+  document.getElementById('shotSpeed').textContent= '—';
+  document.getElementById('shotIcon').textContent = '🏓';
+  renderHistory();
+  updateButtons();
+}
+
+// ═══════════════════════════════════════════════════════
+// IMU PROCESSING
+// ═══════════════════════════════════════════════════════
+const getF = (str,k) => parseFloat(str.match(new RegExp(k+':([-\\d.]+)'))?.[1]??'0');
+
+function processIMU(data) {
+  const arduinoUs = getF(data,'T');
+  const gx=getF(data,'GX'), gy=getF(data,'GY'), gz=getF(data,'GZ');
+  const ax=getF(data,'AX'), ay=getF(data,'AY'), az=getF(data,'AZ');
+
+  Madgwick.update(gx,gy,gz,ax,ay,az,arduinoUs);
+  window.setOrientationActive();
+
+  const e=Madgwick.getEuler();
+  const fmt=v=>(v>=0?' ':'')+v.toFixed(1)+'°';
+  document.getElementById('iGX').textContent=fmt(e.pitch);
+  document.getElementById('iGY').textContent=fmt(e.roll);
+  document.getElementById('iGZ').textContent=fmt(e.yaw);
+
+  const fmtA=v=>(v>=0?' ':'')+v.toFixed(2);
+  document.getElementById('iAX').textContent=fmtA(ax);
+  document.getElementById('iAY').textContent=fmtA(ay);
+  document.getElementById('iAZ').textContent=fmtA(az);
+
+  if (Math.random()<0.03) addFeed(data,'i');
+}
+
+// ═══════════════════════════════════════════════════════
+// HIT PROCESSING
+// ═══════════════════════════════════════════════════════
 function processHit(data) {
   const zm = data.match(/Z(\d+):(\d+)/);
   if (!zm) return;
-  const zNum = zm[1], val = parseInt(zm[2]);
+  const zNum=zm[1], val=parseInt(zm[2]);
+  const gx=getF(data,'GX'), gy=getF(data,'GY'), gz=getF(data,'GZ');
+  const speed=Math.round(Math.sqrt(gx*gx+gy*gy+gz*gz));
+  const shot=classifyShot(zNum,val,gx,gy,gz);
 
-  addFeed(data, 'h');
+  addFeed(data,'h');
   hitCount++;
-  document.getElementById('hitCount').textContent = hitCount;
+  document.getElementById('hitCount').textContent=hitCount;
 
   window.triggerHitFlash();
-  flashChip(zNum, val);
-  flashSVG('svg-z' + zNum);
+  flashChip(zNum,val);
+  flashSVG('svg-z'+zNum);
 
-  if (val > peakVal) {
-    peakVal = val;
-    document.getElementById('peakZone').textContent = 'Z' + zNum;
-    document.getElementById('peakVal').textContent  = val;
-  }
+  if(val>peakVal){ peakVal=val; peakZone='Z'+zNum; }
+  document.getElementById('peakZone').textContent=peakZone;
+  document.getElementById('peakVal').textContent=peakVal;
 
-  const gx = getF(data, 'GX'), gy = getF(data, 'GY'), gz = getF(data, 'GZ');
-  classifyShot(zNum, val, gx, gy, gz);
+  document.getElementById('shotType').textContent=shot.label;
+  document.getElementById('shotType').style.color=shot.color;
+  document.getElementById('shotSpeed').textContent=`${speed} °/s · Z${zNum} · peak ${val}`;
+  document.getElementById('shotIcon').textContent=shot.icon;
+
+  // Store in history
+  shotHistory.push({
+    num:    hitCount,
+    zone:   zNum,
+    val:    val,
+    speed:  speed,
+    shot:   shot,
+    time:   Date.now(),
+    timeMs: sessionStartMs ? Date.now()-sessionStartMs : 0,
+  });
+
+  renderHistoryItem(shotHistory[shotHistory.length-1]);
+  document.getElementById('historyCount').textContent = shotHistory.length;
+  document.getElementById('historyEmpty').style.display = 'none';
 }
 
+// ═══════════════════════════════════════════════════════
+// SHOT HISTORY RENDERING
+// ═══════════════════════════════════════════════════════
+function renderHistoryItem(h) {
+  const list = document.getElementById('historyList');
+  const el = document.createElement('div');
+  el.className = 'history-item';
+  el.innerHTML = `
+    <span class="history-num">#${h.num}</span>
+    <span class="history-zone" style="color:${ZONE_COLORS[h.zone]??'#fff'}">Z${h.zone}</span>
+    <span class="history-type" style="color:${h.shot.color}">${h.shot.icon} ${h.shot.label}</span>
+    <span class="history-force" style="color:${h.val>150?'var(--pink)':h.val>80?'var(--amber)':'var(--muted)'}">${h.val}</span>
+    <span class="history-speed">${h.speed}°/s</span>
+  `;
+  // Insert at top (most recent first)
+  list.insertBefore(el, list.firstChild);
+}
+
+function renderHistory() {
+  const list  = document.getElementById('historyList');
+  const empty = document.getElementById('historyEmpty');
+  list.innerHTML = '';
+  list.appendChild(empty);
+  if (shotHistory.length === 0) {
+    empty.style.display = '';
+    document.getElementById('historyCount').textContent = '0';
+    return;
+  }
+  empty.style.display = 'none';
+  document.getElementById('historyCount').textContent = shotHistory.length;
+  // Render all, most recent first
+  [...shotHistory].reverse().forEach(h => renderHistoryItem(h));
+}
+
+function clearHistory() {
+  shotHistory = [];
+  renderHistory();
+}
+
+// ═══════════════════════════════════════════════════════
+// POST-SESSION REPORT
+// ═══════════════════════════════════════════════════════
+function endSession() {
+  if (!sessionActive && shotHistory.length === 0) return;
+  sessionActive = false;
+  updateButtons();
+  sendCmd('RESET');
+  showSessionReport();
+}
+
+function showSessionReport() {
+  const overlay = document.getElementById('sessionOverlay');
+  overlay.classList.remove('hidden');
+
+  // Duration
+  const dur = sessionStartMs ? Math.round((Date.now()-sessionStartMs)/1000) : 0;
+  const mins = Math.floor(dur/60), secs = dur%60;
+  document.getElementById('reportDuration').textContent =
+    `${mins}m ${secs}s · ${shotHistory.length} shots`;
+
+  // Summary stats
+  const avgForce = shotHistory.length
+    ? Math.round(shotHistory.reduce((a,h)=>a+h.val,0)/shotHistory.length)
+    : 0;
+  const avgSpeed = shotHistory.length
+    ? Math.round(shotHistory.reduce((a,h)=>a+h.speed,0)/shotHistory.length)
+    : 0;
+  document.getElementById('reportStats').innerHTML = `
+    <div class="report-stat">
+      <div class="report-stat-val" style="color:var(--accent)">${shotHistory.length}</div>
+      <div class="report-stat-lbl">Total hits</div>
+    </div>
+    <div class="report-stat">
+      <div class="report-stat-val" style="color:var(--pink)">${peakVal||'—'}</div>
+      <div class="report-stat-lbl">Peak force</div>
+    </div>
+    <div class="report-stat">
+      <div class="report-stat-val" style="color:var(--amber)">${avgForce||'—'}</div>
+      <div class="report-stat-lbl">Avg force</div>
+    </div>
+    <div class="report-stat">
+      <div class="report-stat-val" style="color:var(--purple)">${avgSpeed||'—'}</div>
+      <div class="report-stat-lbl">Avg speed °/s</div>
+    </div>
+  `;
+
+  // Zone bar chart
+  const zoneCounts = {};
+  for (let i=1;i<=6;i++) zoneCounts[i]=0;
+  shotHistory.forEach(h => zoneCounts[parseInt(h.zone)]++);
+  const maxZone = Math.max(...Object.values(zoneCounts), 1);
+  const zoneBarColors = { 1:'#a78bfa',2:'#34d399',3:'#34d399',4:'#6ee7f7',5:'#a78bfa',6:'#fbbf24' };
+  document.getElementById('zoneBarChart').innerHTML =
+    Object.entries(zoneCounts).map(([z,c])=>`
+      <div class="bar-row">
+        <span class="bar-lbl" style="color:${zoneBarColors[z]}">Z${z}</span>
+        <div class="bar-track">
+          <div class="bar-fill" style="width:${Math.round(c/maxZone*100)}%;background:${zoneBarColors[z]}"></div>
+        </div>
+        <span class="bar-count">${c}</span>
+      </div>
+    `).join('');
+
+  // Force over time canvas chart
+  drawForceChart();
+
+  // Shot type breakdown
+  const shotCounts = {};
+  shotHistory.forEach(h => {
+    shotCounts[h.shot.label] = shotCounts[h.shot.label] || { icon:h.shot.icon, color:h.shot.color, count:0 };
+    shotCounts[h.shot.label].count++;
+  });
+  const sortedShots = Object.entries(shotCounts).sort((a,b)=>b[1].count-a[1].count);
+  const maxShot = sortedShots.length ? sortedShots[0][1].count : 1;
+  document.getElementById('shotBreakdown').innerHTML =
+    sortedShots.map(([label,s])=>`
+      <div class="shot-row">
+        <span class="shot-row-icon">${s.icon}</span>
+        <span class="shot-row-lbl" style="color:${s.color}">${label}</span>
+        <div class="shot-row-bar"><div class="shot-row-fill" style="width:${Math.round(s.count/maxShot*100)}%;background:${s.color}"></div></div>
+        <span class="shot-row-count">${s.count}</span>
+      </div>
+    `).join('');
+}
+
+function drawForceChart() {
+  const canvas = document.getElementById('forceCanvas');
+  const W = canvas.parentElement.clientWidth;
+  const H = 80;
+  canvas.width  = W * window.devicePixelRatio;
+  canvas.height = H * window.devicePixelRatio;
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+
+  if (shotHistory.length === 0) {
+    ctx.fillStyle = '#383860';
+    ctx.font = '10px JetBrains Mono';
+    ctx.textAlign = 'center';
+    ctx.fillText('No data', W/2, H/2);
+    return;
+  }
+
+  const pad = { l:8, r:8, t:8, b:8 };
+  const cw = W - pad.l - pad.r;
+  const ch = H - pad.t - pad.b;
+  const maxV = Math.max(...shotHistory.map(h=>h.val), 1);
+  const pts  = shotHistory.map((h,i)=>({
+    x: pad.l + (i/(Math.max(shotHistory.length-1,1)))*cw,
+    y: pad.t + ch - (h.val/maxV)*ch,
+    v: h.val,
+  }));
+
+  // Grid lines
+  ctx.strokeStyle = '#191930';
+  ctx.lineWidth   = 0.5;
+  [0.25,0.5,0.75,1].forEach(f=>{
+    const y = pad.t + ch*(1-f);
+    ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke();
+  });
+
+  // Gradient fill under line
+  const grad = ctx.createLinearGradient(0,pad.t,0,pad.t+ch);
+  grad.addColorStop(0, 'rgba(110,231,247,0.3)');
+  grad.addColorStop(1, 'rgba(110,231,247,0)');
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pad.t+ch);
+  pts.forEach(p => ctx.lineTo(p.x, p.y));
+  ctx.lineTo(pts[pts.length-1].x, pad.t+ch);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  pts.forEach((p,i) => i===0 ? ctx.moveTo(p.x,p.y) : ctx.lineTo(p.x,p.y));
+  ctx.strokeStyle = '#6ee7f7';
+  ctx.lineWidth   = 1.5;
+  ctx.lineJoin    = 'round';
+  ctx.stroke();
+
+  // Dots
+  pts.forEach(p => {
+    const col = p.v>150 ? '#f472b6' : p.v>80 ? '#fbbf24' : '#6ee7f7';
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 2.5, 0, Math.PI*2);
+    ctx.fillStyle = col;
+    ctx.fill();
+  });
+}
+
+function startNewSession() {
+  document.getElementById('sessionOverlay').classList.add('hidden');
+  resetSessionState();
+  Madgwick.reset();
+  // Kick off calibration for the new session
+  startCalibration();
+}
+
+// ═══════════════════════════════════════════════════════
+// FLASH HELPERS
+// ═══════════════════════════════════════════════════════
 function flashChip(key, val) {
-  const chip  = document.getElementById('chip-z' + key);
-  const valEl = document.getElementById('v' + key);
-  if (!chip) return;
-  if (valEl) valEl.textContent = val;
-  chip.classList.add('active', 'flash');
-  setTimeout(() => { chip.classList.remove('active', 'flash'); if (valEl) valEl.textContent = '—'; }, 900);
+  const chip=document.getElementById('chip-z'+key);
+  const valEl=document.getElementById('v'+key);
+  if(!chip) return;
+  if(valEl) valEl.textContent=val;
+  chip.classList.add('active','flash');
+  setTimeout(()=>{ chip.classList.remove('active','flash'); if(valEl) valEl.textContent='—'; },900);
 }
 
 function flashSVG(id) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.style.fill   = 'rgba(110,231,247,0.4)';
-  el.style.filter = 'brightness(2.5)';
-  setTimeout(() => { el.style.fill = ''; el.style.filter = ''; }, 400);
+  const el=document.getElementById(id);
+  if(!el) return;
+  el.style.fill='rgba(110,231,247,0.4)'; el.style.filter='brightness(2.5)';
+  setTimeout(()=>{ el.style.fill=''; el.style.filter=''; },400);
 }
 
-const SHOTS = [
-  { test: (z,v,gx,gy,gz) => v < 25,               label:'Dink / Drop',    icon:'🫧', color:'var(--green)'  },
-  { test: (z,v,gx,gy,gz) => Math.abs(gz) > 120,   label:'Spin Shot',      icon:'🌀', color:'var(--amber)'  },
-  { test: (z,v,gx,gy,gz) => gx > 140 && v > 90,   label:'Smash',          icon:'💥', color:'var(--pink)'   },
-  { test: (z,v,gx,gy,gz) => gy < -50,              label:'Forehand Drive', icon:'➡️', color:'var(--accent)' },
-  { test: (z,v,gx,gy,gz) => gy > 50,               label:'Backhand Drive', icon:'⬅️', color:'var(--purple)' },
-  { test: (z,v,gx,gy,gz) => v > 90,                label:'Power Hit',      icon:'⚡', color:'var(--pink)'   },
-  { test: () => true,                               label:'Rally Shot',     icon:'🏓', color:'var(--accent)' },
-];
-
-function classifyShot(zNum, val, gx, gy, gz) {
-  const speed = Math.sqrt(gx*gx + gy*gy + gz*gz);
-  const shot  = SHOTS.find(s => s.test(zNum, val, gx, gy, gz));
-  document.getElementById('shotType').textContent  = shot.label;
-  document.getElementById('shotType').style.color  = shot.color;
-  document.getElementById('shotSpeed').textContent = `${Math.round(speed)} °/s · Z${zNum} · peak ${val}`;
-  document.getElementById('shotIcon').textContent  = shot.icon;
-}
-
+// ═══════════════════════════════════════════════════════
+// FEED
+// ═══════════════════════════════════════════════════════
 function addFeed(txt, cls) {
-  const feed = document.getElementById('feed');
-  const el   = document.createElement('div');
-  el.className   = 'feed-item ' + cls;
-  el.textContent = txt;
-  feed.insertBefore(el, feed.firstChild);
-  if (feed.children.length > 50) feed.removeChild(feed.lastChild);
+  const feed=document.getElementById('feed');
+  const el=document.createElement('div');
+  el.className='feed-item '+cls; el.textContent=txt;
+  feed.insertBefore(el,feed.firstChild);
+  if(feed.children.length>50) feed.removeChild(feed.lastChild);
 }
+function clearFeed() { document.getElementById('feed').innerHTML=''; }
 
-function clearFeed() { document.getElementById('feed').innerHTML = ''; }
+// ── Init ──
+updateButtons();
+// Show calibration on load so user calibrates before connecting
+// (they can skip if not yet connected)
+updateCalUI();
 </script>
 </body>
 </html>
