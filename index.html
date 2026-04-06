@@ -6,6 +6,7 @@
   <title>PaddlePals</title>
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
   <style>
     :root {
       --bg:      #07070f;
@@ -830,43 +831,37 @@ function skipCalibration() {
   const paddleGroup = new THREE.Group();
   scene.add(paddleGroup);
 
-  const head = new THREE.Mesh(
-    new THREE.SphereGeometry(1,32,20),
-    new THREE.MeshPhongMaterial({color:0x1a1a3a,specular:0x6ee7f7,shininess:60,transparent:true,opacity:0.92})
-  );
-  head.scale.set(1.1,1.35,0.12); head.position.y=0.5; paddleGroup.add(head);
+  // Hit flash (hoisted before GLB loader so callback can reference it)
+  const flashMat = new THREE.MeshBasicMaterial({ color: 0x6ee7f7, transparent: true, opacity: 0, side: THREE.DoubleSide });
+  const flashPlane = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 2.8), flashMat);
+  flashPlane.position.set(0, 0.5, 0.14); paddleGroup.add(flashPlane);
 
-  const edge = new THREE.Mesh(
-    new THREE.TorusGeometry(1.0,0.04,8,60),
-    new THREE.MeshPhongMaterial({color:0x4040a0,specular:0x8888ff,shininess:80})
-  );
-  edge.scale.set(1.1,1.35,1); edge.position.y=0.5; paddleGroup.add(edge);
+  // Load GLB paddle model
+  const loader = new THREE.GLTFLoader();
+  loader.load('models/PaddlePal_v5_wired.glb', function(gltf) {
+    const model = gltf.scene;
+    model.scale.set(10, 10, 10);
+    model.position.set(0, -1.5, 0);
+    paddleGroup.add(model);
 
-  const lm=new THREE.LineBasicMaterial({color:0x2a2a5a,transparent:true,opacity:0.6});
-  [-0.35,0.35].forEach(x=>{
-    paddleGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x,-0.4,0.07),new THREE.Vector3(x,1.4,0.07)]),lm));
+    // Reposition hit flash plane to match loaded model bounds
+    const box = new THREE.Box3().setFromObject(model);
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+    flashPlane.geometry.dispose();
+    flashPlane.geometry = new THREE.PlaneGeometry(size.x * 1.2, size.y * 1.2);
+    flashPlane.position.set(center.x, center.y, box.max.z + 0.02);
+
+    console.log('Paddle GLB loaded — bounds:', size);
+  }, undefined, function(error) {
+    console.error('Failed to load paddle GLB:', error);
   });
-  [-0.2,0.3,0.8,1.3].forEach(y=>{
-    paddleGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-0.9,y,0.07),new THREE.Vector3(0.9,y,0.07)]),lm));
-  });
 
-  const handle=new THREE.Mesh(
-    new THREE.CylinderGeometry(0.12,0.14,1.4,16),
-    new THREE.MeshPhongMaterial({color:0x0f0f20,specular:0x333366,shininess:30})
-  );
-  handle.position.y=-0.85; paddleGroup.add(handle);
-
-  for(let i=0;i<5;i++){
-    const g=new THREE.Mesh(new THREE.TorusGeometry(0.135,0.012,6,20),new THREE.MeshPhongMaterial({color:0x1a1a35}));
-    g.position.y=-0.5-i*0.18; g.rotation.x=Math.PI/2; paddleGroup.add(g);
-  }
-
-  const flashMat=new THREE.MeshBasicMaterial({color:0x6ee7f7,transparent:true,opacity:0,side:THREE.DoubleSide});
-  const flashPlane=new THREE.Mesh(new THREE.PlaneGeometry(2.2,2.8),flashMat);
-  flashPlane.position.set(0,0.5,0.14); paddleGroup.add(flashPlane);
-
-  let idleRotation=true, idleAngle=0;
-  const threeQuat=new THREE.Quaternion();
+  let idleRotation = true;
+  let idleAngle    = 0;
+  const threeQuat  = new THREE.Quaternion();
 
   window.setOrientationActive=()=>{ idleRotation=false; };
   window.triggerHitFlash=function(){
@@ -877,14 +872,21 @@ function skipCalibration() {
 
   (function animate(){
     requestAnimationFrame(animate);
-    if(idleRotation){
-      idleAngle+=0.008;
-      paddleGroup.rotation.y=Math.sin(idleAngle)*0.4;
-      paddleGroup.rotation.x=Math.sin(idleAngle*0.7)*0.15;
+    if (idleRotation) {
+      idleAngle += 0.008;
+      const idleEuler = new THREE.Euler(
+        Math.sin(idleAngle * 0.7) * 0.15,
+        Math.sin(idleAngle) * 0.4,
+        0, 'XYZ'
+      );
+      threeQuat.setFromEuler(idleEuler);
+      paddleGroup.quaternion.slerp(threeQuat, 0.1);
     } else {
-      const q=Madgwick.getQuaternion();
-      threeQuat.set(q.x,q.y,q.z,q.w);
-      paddleGroup.quaternion.copy(threeQuat);
+      // Pull latest quaternion from Madgwick every frame
+      // Three.js (x,y,z,w) ← Madgwick (w,x,y,z)
+      const q = Madgwick.getQuaternion();
+      threeQuat.set(q.x, q.y, q.z, q.w);
+      paddleGroup.quaternion.slerp(threeQuat, 0.15);
     }
     renderer.render(scene,camera);
   })();
