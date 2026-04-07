@@ -6,7 +6,6 @@
   <title>PaddlePals</title>
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
   <style>
     :root {
       --bg:      #07070f;
@@ -132,6 +131,18 @@
     }
     .cal-dot.done   { background: var(--green); }
     .cal-dot.active { background: var(--amber); }
+
+    /* Timer bar shown during mag cal */
+    .cal-timer-bar {
+      width: 100%; height: 4px; background: var(--border2);
+      border-radius: 2px; overflow: hidden; margin-bottom: 16px;
+      display: none;
+    }
+    .cal-timer-fill {
+      height: 100%; width: 0%; background: var(--amber);
+      border-radius: 2px; transition: width linear;
+    }
+
     .cal-btn {
       width: 100%;
       padding: 14px;
@@ -144,12 +155,14 @@
     }
     .cal-btn:hover  { opacity: 0.9; }
     .cal-btn:active { transform: scale(0.98); }
+    .cal-btn:disabled { opacity: 0.4; cursor: not-allowed; }
     .cal-btn.secondary {
       background: transparent;
       border: 1px solid var(--border2);
       color: var(--muted); margin-top: 8px;
       font-size: 12px;
     }
+    .cal-btn.secondary:disabled { opacity: 0.3; }
 
     /* ── CONTROL BUTTONS ── */
     .controls-row {
@@ -205,6 +218,17 @@
     .imu-lbl { font-family: 'JetBrains Mono', monospace; font-size: 8px; color: var(--muted); text-transform: uppercase; }
     .imu-val { font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 500; color: var(--accent); font-variant-numeric: tabular-nums; }
     .imu-val.a { color: var(--purple); }
+
+    /* Mag health indicator row */
+    .mag-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 12px;
+      border-top: 1px solid var(--border);
+      font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--muted);
+    }
+    .mag-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--muted); }
+    .mag-dot.ok  { background: var(--green); }
+    .mag-dot.cal { background: var(--amber); }
 
     /* ── PADDLE MAP + ZONES ── */
     .main-row {
@@ -342,26 +366,16 @@
       transition: opacity 0.4s;
     }
     .session-overlay.hidden { opacity: 0; pointer-events: none; }
-    .session-report {
-      max-width: 480px; margin: 0 auto;
-    }
-    .report-header {
-      text-align: center; padding: 32px 0 24px;
-    }
-    .report-title {
-      font-size: 28px; font-weight: 800; letter-spacing: -1px;
-      margin-bottom: 4px;
-    }
+    .session-report { max-width: 480px; margin: 0 auto; }
+    .report-header { text-align: center; padding: 32px 0 24px; }
+    .report-title { font-size: 28px; font-weight: 800; letter-spacing: -1px; margin-bottom: 4px; }
     .report-title em { font-style: normal; color: var(--accent); }
     .report-sub {
       font-family: 'JetBrains Mono', monospace;
       font-size: 9px; color: var(--muted);
       text-transform: uppercase; letter-spacing: 0.14em;
     }
-    .report-stats {
-      display: grid; grid-template-columns: 1fr 1fr;
-      gap: 8px; margin-bottom: 16px;
-    }
+    .report-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
     .report-stat {
       background: var(--surface); border: 1px solid var(--border2);
       border-radius: 16px; padding: 16px;
@@ -384,20 +398,14 @@
       text-transform: uppercase; letter-spacing: 0.12em;
       margin-bottom: 14px;
     }
-
-    /* Bar chart */
     .bar-chart { display: flex; flex-direction: column; gap: 8px; }
     .bar-row { display: flex; align-items: center; gap: 10px; }
     .bar-lbl { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--muted); min-width: 28px; }
     .bar-track { flex: 1; height: 8px; background: var(--dim); border-radius: 4px; overflow: hidden; }
     .bar-fill  { height: 100%; border-radius: 4px; transition: width 0.8s cubic-bezier(0.16,1,0.3,1); }
     .bar-count { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--muted); min-width: 20px; text-align: right; }
-
-    /* Force timeline */
     .force-chart { position: relative; height: 80px; }
     .force-chart canvas { width: 100%; height: 100%; }
-
-    /* Shot type donut */
     .shot-breakdown { display: flex; flex-direction: column; gap: 6px; }
     .shot-row { display: flex; align-items: center; gap: 10px; }
     .shot-row-icon  { font-size: 14px; min-width: 20px; }
@@ -405,8 +413,6 @@
     .shot-row-count { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--muted); }
     .shot-row-bar   { width: 60px; height: 4px; background: var(--dim); border-radius: 2px; overflow: hidden; }
     .shot-row-fill  { height: 100%; border-radius: 2px; }
-
-    /* New session button */
     .new-session-btn {
       width: 100%; padding: 16px;
       background: linear-gradient(135deg, var(--accent), var(--purple));
@@ -426,19 +432,21 @@
 <!-- ═══════════════════════════════ CALIBRATION OVERLAY ═══════════════════════════════ -->
 <div class="cal-overlay" id="calOverlay">
   <div class="cal-box">
-    <div class="cal-step-label" id="calStepLabel">Step 1 of 3 · Calibration</div>
-    <div class="cal-title" id="calTitle">Hold Paddle Upright</div>
-    <div class="cal-illustration" id="calIllustration">
-      <!-- SVG illustration changes per step -->
-    </div>
-    <div class="cal-desc" id="calDesc">Hold the paddle vertically with the handle pointing down, face pointing toward you. Keep it still.</div>
+    <div class="cal-step-label" id="calStepLabel">Step 1 of 4 · Calibration</div>
+    <div class="cal-title" id="calTitle">Magnetometer Cal</div>
+    <div class="cal-illustration" id="calIllustration"></div>
+    <div class="cal-desc" id="calDesc">Wave the paddle in a slow figure-8 pattern for 10 seconds to map the magnetic field around the paddle's electronics.</div>
     <div class="cal-progress">
       <div class="cal-dot active" id="cdot0"></div>
       <div class="cal-dot"        id="cdot1"></div>
       <div class="cal-dot"        id="cdot2"></div>
+      <div class="cal-dot"        id="cdot3"></div>
     </div>
-    <button class="cal-btn" id="calBtn" onclick="calCapture()">Capture Position</button>
-    <button class="cal-btn secondary" onclick="skipCalibration()">Skip Calibration</button>
+    <div class="cal-timer-bar" id="calTimerBar">
+      <div class="cal-timer-fill" id="calTimerFill"></div>
+    </div>
+    <button class="cal-btn" id="calBtn" onclick="calAction()">Start Figure-8</button>
+    <button class="cal-btn secondary" id="calSkipBtn" onclick="skipCalibration()">Skip Calibration</button>
   </div>
 </div>
 
@@ -449,29 +457,19 @@
       <div class="report-title">Session <em>Complete</em></div>
       <div class="report-sub" id="reportDuration">—</div>
     </div>
-
     <div class="report-stats" id="reportStats"></div>
-
-    <!-- Hits per zone bar chart -->
     <div class="report-card">
       <div class="report-card-title">Hits per zone</div>
       <div class="bar-chart" id="zoneBarChart"></div>
     </div>
-
-    <!-- Force timeline -->
     <div class="report-card">
       <div class="report-card-title">Force over time</div>
-      <div class="force-chart">
-        <canvas id="forceCanvas"></canvas>
-      </div>
+      <div class="force-chart"><canvas id="forceCanvas"></canvas></div>
     </div>
-
-    <!-- Shot type breakdown -->
     <div class="report-card">
       <div class="report-card-title">Shot breakdown</div>
       <div class="shot-breakdown" id="shotBreakdown"></div>
     </div>
-
     <button class="new-session-btn" onclick="startNewSession()">Start New Session</button>
   </div>
 </div>
@@ -503,12 +501,15 @@
       <span class="icon">⏻</span><span class="lbl">Shutdown</span>
     </button>
   </div>
-  <div class="controls-row" style="margin-bottom:10px; grid-template-columns: 1fr 1fr;">
-    <button class="ctrl-btn" id="btnCalibrate" onclick="startCalibration()" style="color:var(--amber);border-color:rgba(251,191,36,0.2);" disabled>
-      <span class="icon">⊕</span><span class="lbl">Calibrate</span>
+  <div class="controls-row" style="margin-bottom:10px; grid-template-columns: 1fr 1fr 1fr;">
+    <button class="ctrl-btn" id="btnMagCal" onclick="startMagCal()" style="color:var(--amber);border-color:rgba(251,191,36,0.2);" disabled>
+      <span class="icon">⊕</span><span class="lbl">Mag Cal</span>
+    </button>
+    <button class="ctrl-btn" id="btnOrientCal" onclick="startOrientCal()" style="color:var(--accent);border-color:rgba(110,231,247,0.2);" disabled>
+      <span class="icon">⌖</span><span class="lbl">Orient Cal</span>
     </button>
     <button class="ctrl-btn end" id="btnEndSession" onclick="endSession()" disabled>
-      <span class="icon">◼</span><span class="lbl">End Session</span>
+      <span class="icon">◼</span><span class="lbl">End</span>
     </button>
   </div>
 
@@ -516,7 +517,7 @@
   <div class="sec-label">Paddle orientation</div>
   <div class="card" style="margin-bottom:10px;">
     <div class="model-header">
-      <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;">3D · Madgwick (JS)</span>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;">3D · Madgwick 9-DOF</span>
       <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--muted);" id="gyroHz">— Hz</span>
     </div>
     <canvas id="threeCanvas"></canvas>
@@ -527,6 +528,11 @@
       <div class="imu-cell"><div class="imu-lbl">AX</div>   <div class="imu-val a" id="iAX">—</div></div>
       <div class="imu-cell"><div class="imu-lbl">AY</div>   <div class="imu-val a" id="iAY">—</div></div>
       <div class="imu-cell"><div class="imu-lbl">AZ</div>   <div class="imu-val a" id="iAZ">—</div></div>
+    </div>
+    <div class="mag-row">
+      <div class="mag-dot" id="magDot"></div>
+      <span id="magStatus">Mag: waiting for data</span>
+      <span style="margin-left:auto;font-size:9px;" id="magReadout">—</span>
     </div>
   </div>
 
@@ -622,23 +628,28 @@
 
 <script>
 // ═══════════════════════════════════════════════════════
-// MADGWICK FILTER
+// 9-DOF MADGWICK FILTER
 // ═══════════════════════════════════════════════════════
 const Madgwick = (() => {
   let beta = 0.033;
   let q0=1, q1=0, q2=0, q3=0;
   let lastArduinoUs = null;
 
-  // Calibration offset quaternion (identity = no correction)
+  // Hard iron offsets (µT) — set by mag calibration
+  let magOffset = { x:0, y:0, z:0 };
+  let magCalibrated = false;
+
+  // Reference frame offset quaternion — set by orientation calibration
   let calOffset = { w:1, x:0, y:0, z:0 };
+  let orientCalibrated = false;
 
   let _hzCount=0, _hzLast=performance.now();
 
-  function update(gx, gy, gz, ax, ay, az, arduinoUs) {
+  function update(gx, gy, gz, ax, ay, az, mx, my, mz, arduinoUs) {
     let dt = 0.01;
     if (lastArduinoUs !== null) {
       let diff = arduinoUs - lastArduinoUs;
-      if (diff < 0) diff += 4294967296;
+      if (diff < 0) diff += 4294967296; // micros() overflow
       dt = diff / 1e6;
       if (dt <= 0 || dt > 0.5) dt = 0.01;
     }
@@ -654,26 +665,75 @@ const Madgwick = (() => {
     const D2R = Math.PI/180;
     gx *= D2R; gy *= D2R; gz *= D2R;
 
+    // Apply hard iron correction
+    mx -= magOffset.x; my -= magOffset.y; mz -= magOffset.z;
+
+    // Normalise accelerometer
+    let aMag = Math.sqrt(ax*ax+ay*ay+az*az);
+    const accelValid = aMag > 0.5 && aMag < 8.0;
+    if (accelValid) { const r=1/aMag; ax*=r; ay*=r; az*=r; }
+
+    // Normalise magnetometer
+    let mMag = Math.sqrt(mx*mx+my*my+mz*mz);
+    const magValid = mMag > 5.0; // µT — rejects zeroes and noise
+    if (magValid) { const r=1/mMag; mx*=r; my*=r; mz*=r; }
+
+    // Gyro integration rate (always runs)
     let qDot0 = 0.5*(-q1*gx - q2*gy - q3*gz);
     let qDot1 = 0.5*( q0*gx + q2*gz - q3*gy);
     let qDot2 = 0.5*( q0*gy - q1*gz + q3*gx);
     let qDot3 = 0.5*( q0*gz + q1*gy - q2*gx);
 
-    const mag = Math.sqrt(ax*ax+ay*ay+az*az);
-    if (mag > 0.5 && mag < 8.0) {
-      const rn = 1/mag;
-      ax*=rn; ay*=rn; az*=rn;
+    if (accelValid && magValid) {
+      // Full 9-DOF gradient descent correction
+      const q0q0=q0*q0, q0q1=q0*q1, q0q2=q0*q2, q0q3=q0*q3;
+      const q1q1=q1*q1, q1q2=q1*q2, q1q3=q1*q3;
+      const q2q2=q2*q2, q2q3=q2*q3, q3q3=q3*q3;
+
+      // Reference direction of Earth's magnetic field in sensor frame
+      const hx = mx*(0.5-q2q2-q3q3) + my*(q1q2-q0q3) + mz*(q1q3+q0q2);
+      const hy = mx*(q1q2+q0q3) + my*(0.5-q1q1-q3q3) + mz*(q2q3-q0q1);
+      const _2bx = 2*Math.sqrt(hx*hx+hy*hy); // horizontal component
+      const _2bz = 2*(mx*(q1q3-q0q2) + my*(q2q3+q0q1) + mz*(0.5-q1q1-q2q2));
+      const _4bx = 2*_2bx, _4bz = 2*_2bz;
+
+      let s0 = -2*q2*(2*(q1q3-q0q2)-ax) + 2*q1*(2*(q0q1+q2q3)-ay)
+               - _2bz*q2*(_2bx*(0.5-q2q2-q3q3)+_2bz*(q1q3-q0q2)-mx)
+               + (-_2bx*q3+_2bz*q1)*(_2bx*(q1q2-q0q3)+_2bz*(q0q1+q2q3)-my)
+               + _2bx*q2*(_2bx*(q1q3+q0q2)+_2bz*(0.5-q1q1-q2q2)-mz);
+
+      let s1 = 2*q3*(2*(q1q3-q0q2)-ax) + 2*q0*(2*(q0q1+q2q3)-ay)
+               - 4*q1*(1-2*(q1q1+q2q2)-az)
+               + _2bz*q3*(_2bx*(0.5-q2q2-q3q3)+_2bz*(q1q3-q0q2)-mx)
+               + (_2bx*q2+_2bz*q0)*(_2bx*(q1q2-q0q3)+_2bz*(q0q1+q2q3)-my)
+               + (_2bx*q3-_4bz*q1)*(_2bx*(q1q3+q0q2)+_2bz*(0.5-q1q1-q2q2)-mz);
+
+      let s2 = -2*q0*(2*(q1q3-q0q2)-ax) + 2*q3*(2*(q0q1+q2q3)-ay)
+               - 4*q2*(1-2*(q1q1+q2q2)-az)
+               + (-_4bx*q2-_2bz*q0)*(_2bx*(0.5-q2q2-q3q3)+_2bz*(q1q3-q0q2)-mx)
+               + (_2bx*q1+_2bz*q3)*(_2bx*(q1q2-q0q3)+_2bz*(q0q1+q2q3)-my)
+               + (_2bx*q0-_4bz*q2)*(_2bx*(q1q3+q0q2)+_2bz*(0.5-q1q1-q2q2)-mz);
+
+      let s3 = 2*q1*(2*(q1q3-q0q2)-ax) - 2*q2*(2*(q0q1+q2q3)-ay)  // yaw correction via mag
+               + (-_4bx*q3+_2bz*q1)*(_2bx*(0.5-q2q2-q3q3)+_2bz*(q1q3-q0q2)-mx)
+               + (-_2bx*q0+_2bz*q2)*(_2bx*(q1q2-q0q3)+_2bz*(q0q1+q2q3)-my)
+               + _2bx*q1*(_2bx*(q1q3+q0q2)+_2bz*(0.5-q1q1-q2q2)-mz);
+
+      const sNorm = 1/Math.sqrt(s0*s0+s1*s1+s2*s2+s3*s3);
+      s0*=sNorm; s1*=sNorm; s2*=sNorm; s3*=sNorm;
+      qDot0 -= beta*s0; qDot1 -= beta*s1; qDot2 -= beta*s2; qDot3 -= beta*s3;
+
+    } else if (accelValid) {
+      // 6-DOF fallback — yaw will drift without mag
       const _2q0=2*q0,_2q1=2*q1,_2q2=2*q2,_2q3=2*q3;
-      const _4q0=4*q0,_4q1=4*q1,_4q2=4*q2;
-      const _8q1=8*q1,_8q2=8*q2;
-      const q0q0=q0*q0,q1q1=q1*q1,q2q2=q2*q2,q3q3=q3*q3;
-      let s0=_4q0*q2q2+_2q2*ax+_4q0*q1q1-_2q1*ay;
-      let s1=_4q1*q3q3-_2q3*ax+4*q0q0*q1-_2q0*ay-_4q1+_8q1*q1q1+_8q1*q2q2+_4q1*az;
-      let s2=4*q0q0*q2+_2q0*ax+_4q2*q3q3-_2q3*ay-_4q2+_8q2*q1q1+_8q2*q2q2+_4q2*az;
-      let s3=4*q1q1*q3-_2q1*ax+4*q2q2*q3-_2q2*ay;
-      const sn=1/Math.sqrt(s0*s0+s1*s1+s2*s2+s3*s3);
-      s0*=sn; s1*=sn; s2*=sn; s3*=sn;
-      qDot0-=beta*s0; qDot1-=beta*s1; qDot2-=beta*s2; qDot3-=beta*s3;
+      const q1q1=q1*q1,q2q2=q2*q2;
+      let s0 = _2q2*(2*(q2*q2+q3*q3)-1) - 2*q2*ax + 2*q1*ay;
+      let s1 = _2q3*(2*(q2*q2+q3*q3)-1) - 2*q3*ax - 2*q0*ay - 4*q1*(1-2*(q1q1+q2q2)-az);
+      let s2 = 2*q0*(2*(q2*q2+q3*q3)-1) + 2*q0*ax + 2*q3*ay - 4*q2*(1-2*(q1q1+q2q2)-az);
+      let s3 = 2*q1*(2*(q2*q2+q3*q3)-1) - 2*q1*ax + 2*q2*ay;
+      const sNorm = 1/Math.sqrt(s0*s0+s1*s1+s2*s2+s3*s3);
+      s0*=sNorm; s1*=sNorm; s2*=sNorm; s3*=sNorm;
+      qDot0 -= beta*s0; qDot1 -= beta*s1; qDot2 -= beta*s2; qDot3 -= beta*s3;
     }
 
     q0+=qDot0*dt; q1+=qDot1*dt; q2+=qDot2*dt; q3+=qDot3*dt;
@@ -681,14 +741,7 @@ const Madgwick = (() => {
     q0*=norm; q1*=norm; q2*=norm; q3*=norm;
   }
 
-  // Capture current orientation as the "reference" for a known position.
-  // Returns the inverse of current quaternion — apply this to cancel offset.
-  function captureCalibration() {
-    // Store inverse (conjugate for unit quat) of current orientation
-    calOffset = { w:q0, x:-q1, y:-q2, z:-q3 };
-  }
-
-  // Multiply two quaternions
+  // Quaternion multiply
   function qMul(a, b) {
     return {
       w: a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z,
@@ -698,8 +751,19 @@ const Madgwick = (() => {
     };
   }
 
+  // Capture the current orientation as the reference frame (yaw=0, pitch=0, roll=0)
+  function captureOrientation() {
+    calOffset = { w:q0, x:-q1, y:-q2, z:-q3 }; // conjugate = inverse for unit quat
+    orientCalibrated = true;
+  }
+
+  // Set hard iron offsets from mag calibration figure-8
+  function setMagOffsets(ox, oy, oz) {
+    magOffset = { x:ox, y:oy, z:oz };
+    magCalibrated = true;
+  }
+
   function getQuaternion() {
-    // Apply calibration offset
     const raw = { w:q0, x:q1, y:q2, z:q3 };
     return qMul(calOffset, raw);
   }
@@ -712,61 +776,136 @@ const Madgwick = (() => {
     return { pitch, roll, yaw };
   }
 
-  function reset() { q0=1;q1=0;q2=0;q3=0; lastArduinoUs=null; calOffset={w:1,x:0,y:0,z:0}; }
+  function reset() {
+    q0=1; q1=0; q2=0; q3=0;
+    lastArduinoUs=null;
+    calOffset={w:1,x:0,y:0,z:0};
+    orientCalibrated=false;
+    // magOffset intentionally preserved — survives session reset
+  }
 
-  return { update, captureCalibration, getQuaternion, getEuler, reset };
+  function isMagCalibrated() { return magCalibrated; }
+  function isOrientCalibrated() { return orientCalibrated; }
+
+  return { update, captureOrientation, setMagOffsets, getQuaternion, getEuler, reset,
+           isMagCalibrated, isOrientCalibrated };
+})();
+
+
+// ═══════════════════════════════════════════════════════
+// MAGNETOMETER CALIBRATION (hard iron, figure-8)
+// ═══════════════════════════════════════════════════════
+const MagCal = (() => {
+  let collecting = false;
+  let minX=Infinity,maxX=-Infinity;
+  let minY=Infinity,maxY=-Infinity;
+  let minZ=Infinity,maxZ=-Infinity;
+  let sampleCount = 0;
+
+  function start() { collecting=true; minX=Infinity;maxX=-Infinity;minY=Infinity;maxY=-Infinity;minZ=Infinity;maxZ=-Infinity; sampleCount=0; }
+  function stop() { collecting=false; }
+  function isCollecting() { return collecting; }
+  function getSampleCount() { return sampleCount; }
+
+  function feed(mx, my, mz) {
+    if (!collecting) return;
+    minX=Math.min(minX,mx); maxX=Math.max(maxX,mx);
+    minY=Math.min(minY,my); maxY=Math.max(maxY,my);
+    minZ=Math.min(minZ,mz); maxZ=Math.max(maxZ,mz);
+    sampleCount++;
+  }
+
+  function finish() {
+    collecting = false;
+    const ox = (maxX+minX)/2;
+    const oy = (maxY+minY)/2;
+    const oz = (maxZ+minZ)/2;
+    return { ox, oy, oz, samples: sampleCount };
+  }
+
+  return { start, stop, isCollecting, getSampleCount, feed, finish };
 })();
 
 
 // ═══════════════════════════════════════════════════════
 // CALIBRATION FLOW
-// 3 steps: handle down (neutral), face forward, handle left
+// Step 0: Mag cal (figure-8, 10s timed)
+// Steps 1-3: Orientation reference positions
 // ═══════════════════════════════════════════════════════
 const CAL_STEPS = [
   {
-    label: 'Step 1 of 3 · Calibration',
+    label: 'Step 1 of 4 · Mag calibration',
+    title: 'Figure-8 Motion',
+    desc:  'Wave the paddle in a slow, large figure-8 pattern for 10 seconds. This maps the constant magnetic bias from the paddle\'s electronics.',
+    svg:   `<svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M40 40 C20 20,20 10,40 20 C60 30,60 50,40 60 C20 70,20 55,40 40 Z" stroke="#fbbf24" stroke-width="2" fill="none" stroke-linecap="round"/>
+              <circle cx="40" cy="40" r="3" fill="#fbbf24"/>
+              <text x="40" y="78" text-anchor="middle" fill="#fbbf24" font-size="8" font-family="monospace">figure-8</text>
+            </svg>`,
+    isMagStep: true,
+  },
+  {
+    label: 'Step 2 of 4 · Orient calibration',
     title: 'Hold Paddle Upright',
-    desc:  'Hold the paddle vertically, handle pointing straight down, face pointing toward you. Keep it perfectly still.',
+    desc:  'Hold the paddle vertically with the handle pointing straight down, face pointing toward you. Keep perfectly still — this sets pitch=0, roll=0.',
     svg:   `<svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
               <ellipse cx="40" cy="28" rx="22" ry="20" fill="#1a1a3a" stroke="#6ee7f7" stroke-width="1.5"/>
               <rect x="34" y="48" width="12" height="22" rx="4" fill="#0e0e1e" stroke="#383860" stroke-width="1.2"/>
               <text x="40" y="31" text-anchor="middle" fill="#6ee7f7" font-size="8" font-family="monospace">FACE</text>
               <line x1="40" y1="58" x2="40" y2="70" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="2,2"/>
               <text x="40" y="78" text-anchor="middle" fill="#fbbf24" font-size="7" font-family="monospace">↓ down</text>
-            </svg>`
+            </svg>`,
+    isMagStep: false,
   },
   {
-    label: 'Step 2 of 3 · Calibration',
+    label: 'Step 3 of 4 · Orient calibration',
     title: 'Lay Paddle Flat',
-    desc:  'Lay the paddle face-up on a flat surface, or hold it horizontally with the face pointing straight up toward the ceiling.',
+    desc:  'Lay the paddle face-up on a flat surface. This gives the filter a second reference point to resolve roll ambiguity.',
     svg:   `<svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
               <ellipse cx="40" cy="42" rx="30" ry="10" fill="#1a1a3a" stroke="#6ee7f7" stroke-width="1.5"/>
               <rect x="34" y="52" width="12" height="16" rx="4" fill="#0e0e1e" stroke="#383860" stroke-width="1.2"/>
               <text x="40" y="45" text-anchor="middle" fill="#6ee7f7" font-size="7" font-family="monospace">FACE UP</text>
               <line x1="40" y1="32" x2="40" y2="20" stroke="#fbbf24" stroke-width="1.5"/>
               <text x="40" y="16" text-anchor="middle" fill="#fbbf24" font-size="7" font-family="monospace">↑ up</text>
-            </svg>`
+            </svg>`,
+    isMagStep: false,
   },
   {
-    label: 'Step 3 of 3 · Calibration',
-    title: 'Point Handle Left',
-    desc:  'Hold the paddle horizontally with the handle pointing to your left side. Face can point up or toward you.',
+    label: 'Step 4 of 4 · Orient calibration',
+    title: 'Set Playing Position',
+    desc:  'Hold the paddle in your normal ready/playing position — the angle you want to be yaw=0. Hit capture and calibration is complete.',
     svg:   `<svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <ellipse cx="44" cy="40" rx="20" ry="22" fill="#1a1a3a" stroke="#6ee7f7" stroke-width="1.5"/>
-              <rect x="10" y="36" width="22" height="8" rx="4" fill="#0e0e1e" stroke="#383860" stroke-width="1.2"/>
-              <text x="44" y="43" text-anchor="middle" fill="#6ee7f7" font-size="7" font-family="monospace">FACE</text>
-              <line x1="10" y1="40" x2="2" y2="40" stroke="#fbbf24" stroke-width="1.5"/>
-              <text x="5" y="36" text-anchor="middle" fill="#fbbf24" font-size="7" font-family="monospace">←</text>
-            </svg>`
+              <ellipse cx="44" cy="36" rx="20" ry="22" fill="#1a1a3a" stroke="#6ee7f7" stroke-width="1.5" transform="rotate(-20 44 36)"/>
+              <rect x="10" y="36" width="22" height="8" rx="4" fill="#0e0e1e" stroke="#383860" stroke-width="1.2" transform="rotate(-20 21 40)"/>
+              <text x="44" y="38" text-anchor="middle" fill="#6ee7f7" font-size="7" font-family="monospace">READY</text>
+              <text x="40" y="72" text-anchor="middle" fill="#fbbf24" font-size="7" font-family="monospace">your play angle</text>
+            </svg>`,
+    isMagStep: false,
   },
 ];
 
+const MAG_CAL_DURATION_MS = 10000;
 let calStep = 0;
-let calCaptures = [];
+let calRunning = false;
+let magTimerTimeout = null;
 
 function startCalibration() {
   calStep = 0;
-  calCaptures = [];
+  calRunning = true;
+  updateCalUI();
+  document.getElementById('calOverlay').classList.remove('hidden');
+}
+
+function startMagCal() {
+  calStep = 0;
+  calRunning = true;
+  updateCalUI();
+  document.getElementById('calOverlay').classList.remove('hidden');
+}
+
+function startOrientCal() {
+  calStep = 1; // skip mag, jump straight to orient steps
+  calRunning = true;
   updateCalUI();
   document.getElementById('calOverlay').classList.remove('hidden');
 }
@@ -777,36 +916,96 @@ function updateCalUI() {
   document.getElementById('calTitle').textContent = s.title;
   document.getElementById('calDesc').textContent  = s.desc;
   document.getElementById('calIllustration').innerHTML = s.svg;
-  for (let i = 0; i < 3; i++) {
+
+  for (let i = 0; i < 4; i++) {
     const dot = document.getElementById('cdot' + i);
     dot.className = 'cal-dot' + (i < calStep ? ' done' : i === calStep ? ' active' : '');
   }
+
+  const btn = document.getElementById('calBtn');
+  const timerBar = document.getElementById('calTimerBar');
+  const skipBtn = document.getElementById('calSkipBtn');
+
+  if (s.isMagStep) {
+    btn.textContent = 'Start Figure-8';
+    btn.disabled = false;
+    timerBar.style.display = 'none';
+  } else {
+    btn.textContent = 'Capture Position';
+    btn.disabled = false;
+    timerBar.style.display = 'none';
+  }
+  skipBtn.disabled = false;
 }
 
-function calCapture() {
-  // Take a snapshot of the current orientation
-  Madgwick.captureCalibration();
-  calCaptures.push(calStep);
+function calAction() {
+  const s = CAL_STEPS[calStep];
 
+  if (s.isMagStep) {
+    // Start mag cal collection
+    MagCal.start();
+    const btn = document.getElementById('calBtn');
+    btn.disabled = true;
+    btn.textContent = 'Collecting...';
+    document.getElementById('calSkipBtn').disabled = true;
+
+    // Show timer bar
+    const bar = document.getElementById('calTimerBar');
+    const fill = document.getElementById('calTimerFill');
+    bar.style.display = 'block';
+    fill.style.width = '0%';
+    // Trigger CSS transition by forcing reflow then setting to 100%
+    fill.getBoundingClientRect();
+    fill.style.transition = `width ${MAG_CAL_DURATION_MS}ms linear`;
+    fill.style.width = '100%';
+
+    magTimerTimeout = setTimeout(() => {
+      const result = MagCal.finish();
+      Madgwick.setMagOffsets(result.ox, result.oy, result.oz);
+      addFeed(`Mag cal done: X=${result.ox.toFixed(1)} Y=${result.oy.toFixed(1)} Z=${result.oz.toFixed(1)} µT (${result.samples} samples)`, 's');
+      updateMagStatus(true);
+      advanceCal();
+    }, MAG_CAL_DURATION_MS);
+
+  } else {
+    // Orientation capture
+    Madgwick.captureOrientation();
+    addFeed(`Orient cal step ${calStep} captured`, 's');
+    advanceCal();
+  }
+}
+
+function advanceCal() {
   calStep++;
   if (calStep >= CAL_STEPS.length) {
-    // Done
+    // All done
     document.getElementById('calOverlay').classList.add('hidden');
+    calRunning = false;
     setPill('on', 'Calibrated');
-    addFeed('Calibration complete', 's');
+    addFeed('Calibration complete ✓', 's');
+    updateButtons();
   } else {
     updateCalUI();
   }
 }
 
 function skipCalibration() {
+  if (magTimerTimeout) { clearTimeout(magTimerTimeout); MagCal.stop(); }
   document.getElementById('calOverlay').classList.add('hidden');
+  calRunning = false;
   addFeed('Calibration skipped', 'i');
+}
+
+function updateMagStatus(ok) {
+  const dot = document.getElementById('magDot');
+  const status = document.getElementById('magStatus');
+  dot.className = 'mag-dot ' + (ok ? 'ok' : '');
+  status.textContent = ok ? 'Mag: calibrated' : 'Mag: uncalibrated (yaw may drift)';
 }
 
 
 // ═══════════════════════════════════════════════════════
-// THREE.JS
+// THREE.JS 3D PADDLE
 // ═══════════════════════════════════════════════════════
 (function() {
   const canvas = document.getElementById('threeCanvas');
@@ -826,42 +1025,47 @@ function skipCalibration() {
   scene.add(new THREE.AmbientLight(0x8888cc,0.6));
   const kl=new THREE.DirectionalLight(0x6ee7f7,1.2); kl.position.set(3,5,3); scene.add(kl);
   const rl=new THREE.DirectionalLight(0xa78bfa,0.6); rl.position.set(-3,-2,-3); scene.add(rl);
-  const fl=new THREE.PointLight(0x34d399,0.3,20); fl.position.set(0,-3,2); scene.add(fl);
 
   const paddleGroup = new THREE.Group();
   scene.add(paddleGroup);
 
-  // Hit flash (hoisted before GLB loader so callback can reference it)
-  const flashMat = new THREE.MeshBasicMaterial({ color: 0x6ee7f7, transparent: true, opacity: 0, side: THREE.DoubleSide });
-  const flashPlane = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 2.8), flashMat);
-  flashPlane.position.set(0, 0.5, 0.14); paddleGroup.add(flashPlane);
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(1,32,20),
+    new THREE.MeshPhongMaterial({color:0x1a1a3a,specular:0x6ee7f7,shininess:60,transparent:true,opacity:0.92})
+  );
+  head.scale.set(1.1,1.35,0.12); head.position.y=0.5; paddleGroup.add(head);
 
-  // Load GLB paddle model
-  const loader = new THREE.GLTFLoader();
-  loader.load('models/PaddlePal_v5_wired.glb', function(gltf) {
-    const model = gltf.scene;
-    model.scale.set(10, 10, 10);
-    model.position.set(0, -1.5, 0);
-    paddleGroup.add(model);
+  const edge = new THREE.Mesh(
+    new THREE.TorusGeometry(1.0,0.04,8,60),
+    new THREE.MeshPhongMaterial({color:0x4040a0,specular:0x8888ff,shininess:80})
+  );
+  edge.scale.set(1.1,1.35,1); edge.position.y=0.5; paddleGroup.add(edge);
 
-    // Reposition hit flash plane to match loaded model bounds
-    const box = new THREE.Box3().setFromObject(model);
-    const size = new THREE.Vector3();
-    const center = new THREE.Vector3();
-    box.getSize(size);
-    box.getCenter(center);
-    flashPlane.geometry.dispose();
-    flashPlane.geometry = new THREE.PlaneGeometry(size.x * 1.2, size.y * 1.2);
-    flashPlane.position.set(center.x, center.y, box.max.z + 0.02);
-
-    console.log('Paddle GLB loaded — bounds:', size);
-  }, undefined, function(error) {
-    console.error('Failed to load paddle GLB:', error);
+  const lm=new THREE.LineBasicMaterial({color:0x2a2a5a,transparent:true,opacity:0.6});
+  [-0.35,0.35].forEach(x=>{
+    paddleGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x,-0.4,0.07),new THREE.Vector3(x,1.4,0.07)]),lm));
+  });
+  [-0.2,0.3,0.8,1.3].forEach(y=>{
+    paddleGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-0.9,y,0.07),new THREE.Vector3(0.9,y,0.07)]),lm));
   });
 
-  let idleRotation = true;
-  let idleAngle    = 0;
-  const threeQuat  = new THREE.Quaternion();
+  const handle=new THREE.Mesh(
+    new THREE.CylinderGeometry(0.12,0.14,1.4,16),
+    new THREE.MeshPhongMaterial({color:0x0f0f20,specular:0x333366,shininess:30})
+  );
+  handle.position.y=-0.85; paddleGroup.add(handle);
+
+  for(let i=0;i<5;i++){
+    const g=new THREE.Mesh(new THREE.TorusGeometry(0.135,0.012,6,20),new THREE.MeshPhongMaterial({color:0x1a1a35}));
+    g.position.y=-0.5-i*0.18; g.rotation.x=Math.PI/2; paddleGroup.add(g);
+  }
+
+  const flashMat=new THREE.MeshBasicMaterial({color:0x6ee7f7,transparent:true,opacity:0,side:THREE.DoubleSide});
+  const flashPlane=new THREE.Mesh(new THREE.PlaneGeometry(2.2,2.8),flashMat);
+  flashPlane.position.set(0,0.5,0.14); paddleGroup.add(flashPlane);
+
+  let idleRotation=true, idleAngle=0;
+  const threeQuat=new THREE.Quaternion();
 
   window.setOrientationActive=()=>{ idleRotation=false; };
   window.triggerHitFlash=function(){
@@ -872,21 +1076,14 @@ function skipCalibration() {
 
   (function animate(){
     requestAnimationFrame(animate);
-    if (idleRotation) {
-      idleAngle += 0.008;
-      const idleEuler = new THREE.Euler(
-        Math.sin(idleAngle * 0.7) * 0.15,
-        Math.sin(idleAngle) * 0.4,
-        0, 'XYZ'
-      );
-      threeQuat.setFromEuler(idleEuler);
-      paddleGroup.quaternion.slerp(threeQuat, 0.1);
+    if(idleRotation){
+      idleAngle+=0.008;
+      paddleGroup.rotation.y=Math.sin(idleAngle)*0.4;
+      paddleGroup.rotation.x=Math.sin(idleAngle*0.7)*0.15;
     } else {
-      // Pull latest quaternion from Madgwick every frame
-      // Three.js (x,y,z,w) ← Madgwick (w,x,y,z)
-      const q = Madgwick.getQuaternion();
-      threeQuat.set(q.x, q.y, q.z, q.w);
-      paddleGroup.quaternion.slerp(threeQuat, 0.15);
+      const q=Madgwick.getQuaternion();
+      threeQuat.set(q.x,q.y,q.z,q.w);
+      paddleGroup.quaternion.copy(threeQuat);
     }
     renderer.render(scene,camera);
   })();
@@ -906,7 +1103,7 @@ let sessionStartMs = null;
 let hitCount  = 0;
 let peakVal   = 0;
 let peakZone  = '—';
-let shotHistory = [];  // array of hit objects for this session
+let shotHistory = [];
 
 const ZONE_COLORS = {
   '1': '#a78bfa', '2': '#34d399', '3': '#34d399',
@@ -926,6 +1123,7 @@ const SHOTS = [
 function classifyShot(zNum, val, gx, gy, gz) {
   return SHOTS.find(s => s.test(zNum, val, gx, gy, gz));
 }
+
 
 // ═══════════════════════════════════════════════════════
 // WEBSOCKET
@@ -953,20 +1151,21 @@ socket.onmessage = (e) => {
 };
 
 function processStatus(data) {
-  // Arduino can send STATUS:SESSION_STARTED / STATUS:SESSION_RESET etc
   if (data === 'SESSION_STARTED') { sessionActive=true; sessionStartMs=Date.now(); updateButtons(); }
-  if (data === 'SESSION_RESET')   { resetSessionState(); updateButtons(); }
+  if (data === 'SESSION_RESET')   { resetSessionState(); }
 }
 
+
 // ═══════════════════════════════════════════════════════
-// BUTTON STATE MANAGEMENT
+// BUTTON STATE
 // ═══════════════════════════════════════════════════════
 function updateButtons() {
   const connected = socket.readyState === WebSocket.OPEN;
-  document.getElementById('btnStart').disabled    = !connected || sessionActive;
-  document.getElementById('btnReset').disabled    = !connected;
-  document.getElementById('btnShutdown').disabled = !connected;
-  document.getElementById('btnCalibrate').disabled= !connected;
+  document.getElementById('btnStart').disabled      = !connected || sessionActive;
+  document.getElementById('btnReset').disabled      = !connected;
+  document.getElementById('btnShutdown').disabled   = !connected;
+  document.getElementById('btnMagCal').disabled     = !connected;
+  document.getElementById('btnOrientCal').disabled  = !connected;
   document.getElementById('btnEndSession').disabled = !connected || !sessionActive;
 }
 
@@ -983,7 +1182,7 @@ function webReset() {
   sendCmd('RESET');
   resetSessionState();
   Madgwick.reset();
-  addFeed('Session reset from web','s');
+  addFeed('Session reset','s');
 }
 
 function webShutdown() {
@@ -1009,17 +1208,37 @@ function resetSessionState() {
   updateButtons();
 }
 
+
 // ═══════════════════════════════════════════════════════
 // IMU PROCESSING
 // ═══════════════════════════════════════════════════════
 const getF = (str,k) => parseFloat(str.match(new RegExp(k+':([-\\d.]+)'))?.[1]??'0');
 
+let lastMagX = 0, lastMagY = 0, lastMagZ = 0;
+let magDataReceived = false;
+
 function processIMU(data) {
   const arduinoUs = getF(data,'T');
   const gx=getF(data,'GX'), gy=getF(data,'GY'), gz=getF(data,'GZ');
   const ax=getF(data,'AX'), ay=getF(data,'AY'), az=getF(data,'AZ');
+  const mx=getF(data,'MX'), my=getF(data,'MY'), mz=getF(data,'MZ');
 
-  Madgwick.update(gx,gy,gz,ax,ay,az,arduinoUs);
+  // Track whether mag data is actually coming in
+  if (mx !== 0 || my !== 0 || mz !== 0) {
+    if (!magDataReceived) {
+      magDataReceived = true;
+      updateMagStatus(Madgwick.isMagCalibrated());
+    }
+    lastMagX=mx; lastMagY=my; lastMagZ=mz;
+    document.getElementById('magReadout').textContent =
+      `${mx.toFixed(0)},${my.toFixed(0)},${mz.toFixed(0)} µT`;
+  }
+
+  // Feed into mag calibration collector if running
+  if (MagCal.isCollecting()) MagCal.feed(mx, my, mz);
+
+  // Update Madgwick filter (9-DOF when mag available, 6-DOF fallback)
+  Madgwick.update(gx,gy,gz, ax,ay,az, mx,my,mz, arduinoUs);
   window.setOrientationActive();
 
   const e=Madgwick.getEuler();
@@ -1033,8 +1252,9 @@ function processIMU(data) {
   document.getElementById('iAY').textContent=fmtA(ay);
   document.getElementById('iAZ').textContent=fmtA(az);
 
-  if (Math.random()<0.03) addFeed(data,'i');
+  if (Math.random()<0.03) addFeed(data.substring(0,60),'i');
 }
+
 
 // ═══════════════════════════════════════════════════════
 // HIT PROCESSING
@@ -1064,14 +1284,9 @@ function processHit(data) {
   document.getElementById('shotSpeed').textContent=`${speed} °/s · Z${zNum} · peak ${val}`;
   document.getElementById('shotIcon').textContent=shot.icon;
 
-  // Store in history
   shotHistory.push({
-    num:    hitCount,
-    zone:   zNum,
-    val:    val,
-    speed:  speed,
-    shot:   shot,
-    time:   Date.now(),
+    num: hitCount, zone: zNum, val, speed, shot,
+    time: Date.now(),
     timeMs: sessionStartMs ? Date.now()-sessionStartMs : 0,
   });
 
@@ -1080,8 +1295,9 @@ function processHit(data) {
   document.getElementById('historyEmpty').style.display = 'none';
 }
 
+
 // ═══════════════════════════════════════════════════════
-// SHOT HISTORY RENDERING
+// SHOT HISTORY
 // ═══════════════════════════════════════════════════════
 function renderHistoryItem(h) {
   const list = document.getElementById('historyList');
@@ -1094,7 +1310,6 @@ function renderHistoryItem(h) {
     <span class="history-force" style="color:${h.val>150?'var(--pink)':h.val>80?'var(--amber)':'var(--muted)'}">${h.val}</span>
     <span class="history-speed">${h.speed}°/s</span>
   `;
-  // Insert at top (most recent first)
   list.insertBefore(el, list.firstChild);
 }
 
@@ -1110,14 +1325,11 @@ function renderHistory() {
   }
   empty.style.display = 'none';
   document.getElementById('historyCount').textContent = shotHistory.length;
-  // Render all, most recent first
   [...shotHistory].reverse().forEach(h => renderHistoryItem(h));
 }
 
-function clearHistory() {
-  shotHistory = [];
-  renderHistory();
-}
+function clearHistory() { shotHistory = []; renderHistory(); }
+
 
 // ═══════════════════════════════════════════════════════
 // POST-SESSION REPORT
@@ -1131,42 +1343,22 @@ function endSession() {
 }
 
 function showSessionReport() {
-  const overlay = document.getElementById('sessionOverlay');
-  overlay.classList.remove('hidden');
+  document.getElementById('sessionOverlay').classList.remove('hidden');
 
-  // Duration
   const dur = sessionStartMs ? Math.round((Date.now()-sessionStartMs)/1000) : 0;
   const mins = Math.floor(dur/60), secs = dur%60;
   document.getElementById('reportDuration').textContent =
     `${mins}m ${secs}s · ${shotHistory.length} shots`;
 
-  // Summary stats
-  const avgForce = shotHistory.length
-    ? Math.round(shotHistory.reduce((a,h)=>a+h.val,0)/shotHistory.length)
-    : 0;
-  const avgSpeed = shotHistory.length
-    ? Math.round(shotHistory.reduce((a,h)=>a+h.speed,0)/shotHistory.length)
-    : 0;
+  const avgForce = shotHistory.length ? Math.round(shotHistory.reduce((a,h)=>a+h.val,0)/shotHistory.length) : 0;
+  const avgSpeed = shotHistory.length ? Math.round(shotHistory.reduce((a,h)=>a+h.speed,0)/shotHistory.length) : 0;
   document.getElementById('reportStats').innerHTML = `
-    <div class="report-stat">
-      <div class="report-stat-val" style="color:var(--accent)">${shotHistory.length}</div>
-      <div class="report-stat-lbl">Total hits</div>
-    </div>
-    <div class="report-stat">
-      <div class="report-stat-val" style="color:var(--pink)">${peakVal||'—'}</div>
-      <div class="report-stat-lbl">Peak force</div>
-    </div>
-    <div class="report-stat">
-      <div class="report-stat-val" style="color:var(--amber)">${avgForce||'—'}</div>
-      <div class="report-stat-lbl">Avg force</div>
-    </div>
-    <div class="report-stat">
-      <div class="report-stat-val" style="color:var(--purple)">${avgSpeed||'—'}</div>
-      <div class="report-stat-lbl">Avg speed °/s</div>
-    </div>
+    <div class="report-stat"><div class="report-stat-val" style="color:var(--accent)">${shotHistory.length}</div><div class="report-stat-lbl">Total hits</div></div>
+    <div class="report-stat"><div class="report-stat-val" style="color:var(--pink)">${peakVal||'—'}</div><div class="report-stat-lbl">Peak force</div></div>
+    <div class="report-stat"><div class="report-stat-val" style="color:var(--amber)">${avgForce||'—'}</div><div class="report-stat-lbl">Avg force</div></div>
+    <div class="report-stat"><div class="report-stat-val" style="color:var(--purple)">${avgSpeed||'—'}</div><div class="report-stat-lbl">Avg speed °/s</div></div>
   `;
 
-  // Zone bar chart
   const zoneCounts = {};
   for (let i=1;i<=6;i++) zoneCounts[i]=0;
   shotHistory.forEach(h => zoneCounts[parseInt(h.zone)]++);
@@ -1176,17 +1368,12 @@ function showSessionReport() {
     Object.entries(zoneCounts).map(([z,c])=>`
       <div class="bar-row">
         <span class="bar-lbl" style="color:${zoneBarColors[z]}">Z${z}</span>
-        <div class="bar-track">
-          <div class="bar-fill" style="width:${Math.round(c/maxZone*100)}%;background:${zoneBarColors[z]}"></div>
-        </div>
+        <div class="bar-track"><div class="bar-fill" style="width:${Math.round(c/maxZone*100)}%;background:${zoneBarColors[z]}"></div></div>
         <span class="bar-count">${c}</span>
-      </div>
-    `).join('');
+      </div>`).join('');
 
-  // Force over time canvas chart
   drawForceChart();
 
-  // Shot type breakdown
   const shotCounts = {};
   shotHistory.forEach(h => {
     shotCounts[h.shot.label] = shotCounts[h.shot.label] || { icon:h.shot.icon, color:h.shot.color, count:0 };
@@ -1201,74 +1388,53 @@ function showSessionReport() {
         <span class="shot-row-lbl" style="color:${s.color}">${label}</span>
         <div class="shot-row-bar"><div class="shot-row-fill" style="width:${Math.round(s.count/maxShot*100)}%;background:${s.color}"></div></div>
         <span class="shot-row-count">${s.count}</span>
-      </div>
-    `).join('');
+      </div>`).join('');
 }
 
 function drawForceChart() {
   const canvas = document.getElementById('forceCanvas');
   const W = canvas.parentElement.clientWidth;
   const H = 80;
-  canvas.width  = W * window.devicePixelRatio;
-  canvas.height = H * window.devicePixelRatio;
-  canvas.style.width  = W + 'px';
-  canvas.style.height = H + 'px';
+  canvas.width=W*window.devicePixelRatio; canvas.height=H*window.devicePixelRatio;
+  canvas.style.width=W+'px'; canvas.style.height=H+'px';
   const ctx = canvas.getContext('2d');
   ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
 
-  if (shotHistory.length === 0) {
-    ctx.fillStyle = '#383860';
-    ctx.font = '10px JetBrains Mono';
-    ctx.textAlign = 'center';
-    ctx.fillText('No data', W/2, H/2);
+  if (!shotHistory.length) {
+    ctx.fillStyle='#383860'; ctx.font='10px JetBrains Mono';
+    ctx.textAlign='center'; ctx.fillText('No data', W/2, H/2);
     return;
   }
 
-  const pad = { l:8, r:8, t:8, b:8 };
-  const cw = W - pad.l - pad.r;
-  const ch = H - pad.t - pad.b;
-  const maxV = Math.max(...shotHistory.map(h=>h.val), 1);
-  const pts  = shotHistory.map((h,i)=>({
-    x: pad.l + (i/(Math.max(shotHistory.length-1,1)))*cw,
-    y: pad.t + ch - (h.val/maxV)*ch,
-    v: h.val,
+  const pad={l:8,r:8,t:8,b:8};
+  const cw=W-pad.l-pad.r, ch=H-pad.t-pad.b;
+  const maxV=Math.max(...shotHistory.map(h=>h.val),1);
+  const pts=shotHistory.map((h,i)=>({
+    x:pad.l+(i/(Math.max(shotHistory.length-1,1)))*cw,
+    y:pad.t+ch-(h.val/maxV)*ch, v:h.val,
   }));
 
-  // Grid lines
-  ctx.strokeStyle = '#191930';
-  ctx.lineWidth   = 0.5;
+  ctx.strokeStyle='#191930'; ctx.lineWidth=0.5;
   [0.25,0.5,0.75,1].forEach(f=>{
-    const y = pad.t + ch*(1-f);
+    const y=pad.t+ch*(1-f);
     ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke();
   });
 
-  // Gradient fill under line
-  const grad = ctx.createLinearGradient(0,pad.t,0,pad.t+ch);
-  grad.addColorStop(0, 'rgba(110,231,247,0.3)');
-  grad.addColorStop(1, 'rgba(110,231,247,0)');
+  const grad=ctx.createLinearGradient(0,pad.t,0,pad.t+ch);
+  grad.addColorStop(0,'rgba(110,231,247,0.3)'); grad.addColorStop(1,'rgba(110,231,247,0)');
   ctx.beginPath();
-  ctx.moveTo(pts[0].x, pad.t+ch);
-  pts.forEach(p => ctx.lineTo(p.x, p.y));
-  ctx.lineTo(pts[pts.length-1].x, pad.t+ch);
-  ctx.closePath();
-  ctx.fillStyle = grad;
-  ctx.fill();
+  ctx.moveTo(pts[0].x,pad.t+ch);
+  pts.forEach(p=>ctx.lineTo(p.x,p.y));
+  ctx.lineTo(pts[pts.length-1].x,pad.t+ch);
+  ctx.closePath(); ctx.fillStyle=grad; ctx.fill();
 
-  // Line
   ctx.beginPath();
-  pts.forEach((p,i) => i===0 ? ctx.moveTo(p.x,p.y) : ctx.lineTo(p.x,p.y));
-  ctx.strokeStyle = '#6ee7f7';
-  ctx.lineWidth   = 1.5;
-  ctx.lineJoin    = 'round';
-  ctx.stroke();
+  pts.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y));
+  ctx.strokeStyle='#6ee7f7'; ctx.lineWidth=1.5; ctx.lineJoin='round'; ctx.stroke();
 
-  // Dots
-  pts.forEach(p => {
-    const col = p.v>150 ? '#f472b6' : p.v>80 ? '#fbbf24' : '#6ee7f7';
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, 2.5, 0, Math.PI*2);
-    ctx.fillStyle = col;
-    ctx.fill();
+  pts.forEach(p=>{
+    const col=p.v>150?'#f472b6':p.v>80?'#fbbf24':'#6ee7f7';
+    ctx.beginPath(); ctx.arc(p.x,p.y,2.5,0,Math.PI*2); ctx.fillStyle=col; ctx.fill();
   });
 }
 
@@ -1276,9 +1442,9 @@ function startNewSession() {
   document.getElementById('sessionOverlay').classList.add('hidden');
   resetSessionState();
   Madgwick.reset();
-  // Kick off calibration for the new session
   startCalibration();
 }
+
 
 // ═══════════════════════════════════════════════════════
 // FLASH HELPERS
@@ -1299,6 +1465,7 @@ function flashSVG(id) {
   setTimeout(()=>{ el.style.fill=''; el.style.filter=''; },400);
 }
 
+
 // ═══════════════════════════════════════════════════════
 // FEED
 // ═══════════════════════════════════════════════════════
@@ -1311,11 +1478,11 @@ function addFeed(txt, cls) {
 }
 function clearFeed() { document.getElementById('feed').innerHTML=''; }
 
+
 // ── Init ──
 updateButtons();
-// Show calibration on load so user calibrates before connecting
-// (they can skip if not yet connected)
-updateCalUI();
+updateCalUI();  // prime the overlay content (hidden by default until triggered)
+document.getElementById('calOverlay').classList.add('hidden');  // hide until user triggers
 </script>
 </body>
 </html>

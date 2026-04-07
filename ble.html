@@ -26,16 +26,16 @@
     const SERVICE_UUID  = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
     const FSR_CHAR_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
     const IMU_CHAR_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a9";
-    const CMD_CHAR_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26aa"; // new
+    const CMD_CHAR_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26aa";
 
     const socket = new WebSocket("ws://172.16.181.150:3000");
-    let cmdChar  = null; // reference to writable BLE characteristic
+    let cmdChar  = null;
 
     socket.onopen  = () => setWs('Connected', true);
     socket.onerror = () => setWs('Error', false);
     socket.onclose = () => setWs('Disconnected', false);
 
-    // ── Receive messages from dashboard → forward to Arduino via BLE ──
+    // Receive messages from dashboard → forward to Arduino via BLE
     socket.onmessage = (e) => {
       const raw = e.data.toString().trim();
       if (raw.startsWith('CMD:')) {
@@ -68,12 +68,12 @@
         await fsrChar.startNotifications();
         fsrChar.addEventListener("characteristicvaluechanged", handleFSR);
 
-        // IMU stream characteristic
+        // IMU stream characteristic (now includes MX/MY/MZ)
         const imuChar = await service.getCharacteristic(IMU_CHAR_UUID);
         await imuChar.startNotifications();
         imuChar.addEventListener("characteristicvaluechanged", handleIMU);
 
-        // CMD characteristic — writable, we hold a reference for sending
+        // CMD characteristic — writable
         cmdChar = await service.getCharacteristic(CMD_CHAR_UUID);
 
         setBle('Connected', true);
@@ -92,9 +92,8 @@
     function handleFSR(event) {
       const value = new TextDecoder().decode(event.target.value).trim();
       if (!value || value === "Waiting...") return;
-      // STATUS messages and HIT messages both go over FSR characteristic
       if (value.startsWith("STATUS:")) {
-        sendToSocket(value); // forward as-is, dashboard handles STATUS: prefix
+        sendToSocket(value);
       } else {
         const msg = "HIT:" + value;
         sendToSocket(msg);

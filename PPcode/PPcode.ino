@@ -1,5 +1,5 @@
 // Comment this out when done developing to remove ALL serial output
-#define DEBUG
+//#define DEBUG
 
 #include <ArduinoBLE.h>
 #include <Arduino_BMI270_BMM150.h>
@@ -32,11 +32,8 @@ BLEStringCharacteristic fsrCharacteristic(
 );
 BLEStringCharacteristic imuCharacteristic(
   "beb5483e-36e1-4688-b7f5-ea07361b26a9",
-  BLERead | BLENotify, 80
+  BLERead | BLENotify, 120   // wider — now includes MX/MY/MZ
 );
-// New: writable characteristic for commands from the web app
-// Web sends: "START", "RESET", "SHUTDOWN"
-// Arduino sends back: "STATUS:SESSION_STARTED", "STATUS:SESSION_RESET"
 BLEStringCharacteristic cmdCharacteristic(
   "beb5483e-36e1-4688-b7f5-ea07361b26aa",
   BLEWrite | BLERead, 32
@@ -58,7 +55,10 @@ struct IMUSnapshot { float gx,gy,gz,ax,ay,az; bool fresh; };
 IMUSnapshot imuLatest = {0,0,0,0,0,0,false};
 
 unsigned long lastIMURead = 0;
-const unsigned long IMU_INTERVAL_MS = 5;
+const unsigned long IMU_INTERVAL_MS = 25;
+
+// Cached magnetometer reading — mag updates slower than gyro/accel (~20 Hz)
+float cachedMx = 0, cachedMy = 0, cachedMz = 0;
 
 // =============================================================================
 // SESSION STATE
@@ -66,7 +66,7 @@ const unsigned long IMU_INTERVAL_MS = 5;
 bool   sessionActive  = false;
 String hitDataString  = "";
 String imuDataString  = "";
-String statusString   = "";  // queued status message to send
+String statusString   = "";
 
 // =============================================================================
 // LED HELPERS
@@ -93,7 +93,7 @@ void checkHoldReset();
 // =============================================================================
 // TICKERS
 // =============================================================================
-TickTwo bleTicker(sendBLE,100,0,MILLIS);
+TickTwo bleTicker(sendBLE,300,0,MILLIS);
 TickTwo paddleLightTicker(paddleLightOff,300,1,MILLIS);
 TickTwo blinkTicker(toggleBlink,500,0,MILLIS);
 TickTwo startHoldTicker(checkHoldStart,1000,1,MILLIS);
@@ -101,7 +101,6 @@ TickTwo resetHoldTicker(checkHoldReset,2000,1,MILLIS);
 
 // =============================================================================
 // SHARED START / RESET LOGIC
-// (called from both physical button and BLE command)
 // =============================================================================
 void doStart() {
   sessionActive = true;
@@ -137,7 +136,7 @@ void doShutdown() {
   #ifdef DEBUG
     Serial.println("SHUTDOWN");
   #endif
-  while(1);
+  //while(1);
 }
 
 // =============================================================================
@@ -146,7 +145,6 @@ void doShutdown() {
 void sendBLE() {
   if (!BLE.connected()) return;
 
-  // Send status update first (highest priority)
   if (statusString.length() > 0) {
     fsrCharacteristic.writeValue(statusString);
     statusString = "";
@@ -208,6 +206,12 @@ void setup() {
     while(1);
   }
 
+  #ifdef DEBUG
+    Serial.print("Gyro sample rate: ");  Serial.println(IMU.gyroscopeSampleRate());
+    Serial.print("Accel sample rate: "); Serial.println(IMU.accelerationSampleRate());
+    Serial.print("Mag sample rate: ");   Serial.println(IMU.magneticFieldSampleRate());
+  #endif
+
   blinkTicker.start();
   paddleWhite();
 
@@ -221,7 +225,7 @@ void setup() {
   BLE.setAdvertisedService(paddleService);
   paddleService.addCharacteristic(fsrCharacteristic);
   paddleService.addCharacteristic(imuCharacteristic);
-  paddleService.addCharacteristic(cmdCharacteristic);   // ← new
+  paddleService.addCharacteristic(cmdCharacteristic);
   BLE.addService(paddleService);
   fsrCharacteristic.writeValue("Waiting...");
   imuCharacteristic.writeValue("Waiting...");
@@ -257,7 +261,6 @@ void loop() {
     if      (cmd == "START")    { if (!sessionActive) doStart(); }
     else if (cmd == "RESET")    { doReset(); }
     else if (cmd == "SHUTDOWN") { doShutdown(); }
-    // Clear the value so we don't re-process it
     cmdCharacteristic.writeValue("");
   }
 
@@ -288,31 +291,42 @@ void loop() {
   if (sessionActive) {
     unsigned long now = millis();
 
-    // IMU poll
+    // ── IMU poll ──
     if (now - lastIMURead >= IMU_INTERVAL_MS) {
       lastIMURead = now;
       float gx,gy,gz,ax,ay,az;
+
       if (IMU.gyroscopeAvailable()    && IMU.readGyroscope(gx,gy,gz) &&
           IMU.accelerationAvailable() && IMU.readAcceleration(ax,ay,az)) {
+
+        // Cache latest mag reading whenever it's ready (runs ~20 Hz independently)
+        if (IMU.magneticFieldAvailable()) {
+          IMU.readMagneticField(cachedMx, cachedMy, cachedMz);
+        }
+
         unsigned long t = micros();
         imuLatest = {gx,gy,gz,ax,ay,az,true};
-        imuDataString  = "T:";  imuDataString += String(t);
+
+        imuDataString  = "T:";   imuDataString += String(t);
         imuDataString += ",GX:"; imuDataString += String(gx,1);
         imuDataString += ",GY:"; imuDataString += String(gy,1);
         imuDataString += ",GZ:"; imuDataString += String(gz,1);
         imuDataString += ",AX:"; imuDataString += String(ax,2);
         imuDataString += ",AY:"; imuDataString += String(ay,2);
         imuDataString += ",AZ:"; imuDataString += String(az,2);
+        imuDataString += ",MX:"; imuDataString += String(cachedMx,1);
+        imuDataString += ",MY:"; imuDataString += String(cachedMy,1);
+        imuDataString += ",MZ:"; imuDataString += String(cachedMz,1);
       }
     }
 
-    // FSR sampling
+    // ── FSR sampling ──
     for (int i=0;i<numZones;i++){
       int r=analogRead(zonePins[i]);
       if(r>zonePeak[i]) zonePeak[i]=r;
     }
 
-    // Hit detection
+    // ── Hit detection ──
     for (int i=0;i<numZones;i++){
       bool over    = zonePeak[i] > threshold;
       bool debounce= (now - zoneLastHit[i]) >= DEBOUNCE_TIME;
