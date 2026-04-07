@@ -321,6 +321,46 @@
       font-size: 10px; color: var(--muted);
     }
 
+    /* ── SAVED SESSIONS ── */
+    .saved-list {
+      max-height: 220px; overflow-y: auto; scrollbar-width: none;
+    }
+    .saved-list::-webkit-scrollbar { display: none; }
+    .saved-item {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 10px; padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .saved-item:last-child { border-bottom: none; }
+    .saved-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .saved-title { font-size: 12px; font-weight: 700; color: var(--text); }
+    .saved-meta {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.06em;
+    }
+    .saved-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+    .saved-btn {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px; color: var(--accent);
+      background: transparent; border: 1px solid var(--border2);
+      border-radius: 10px; padding: 5px 8px;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      cursor: pointer;
+    }
+    .saved-btn:hover { border-color: rgba(110,231,247,0.35); }
+    .saved-btn.delete {
+      color: var(--pink);
+      border-color: rgba(244,114,182,0.25);
+    }
+    .saved-note {
+      padding: 8px 16px;
+      border-top: 1px solid var(--border);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.08em;
+    }
+
     /* ── FEED ── */
     .feed-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
     .feed-clear { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--muted); background: none; border: none; cursor: pointer; text-transform: uppercase; letter-spacing: 0.08em; }
@@ -418,6 +458,18 @@
     }
     .new-session-btn:hover  { opacity: 0.9; }
     .new-session-btn:active { transform: scale(0.98); }
+    .report-close-btn {
+      width: 100%; padding: 12px;
+      background: transparent;
+      border: 1px solid var(--border2);
+      border-radius: 14px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; font-weight: 500;
+      color: var(--muted); cursor: pointer;
+      margin-top: 8px;
+      text-transform: uppercase; letter-spacing: 0.1em;
+    }
+    .report-close-btn:hover { color: var(--accent); border-color: rgba(110,231,247,0.2); }
   </style>
 </head>
 <body>
@@ -445,7 +497,7 @@
 <div class="session-overlay hidden" id="sessionOverlay">
   <div class="session-report">
     <div class="report-header">
-      <div class="report-title">Session <em>Complete</em></div>
+      <div class="report-title" id="reportTitle">Session <em>Complete</em></div>
       <div class="report-sub" id="reportDuration">—</div>
     </div>
 
@@ -472,6 +524,7 @@
     </div>
 
     <button class="new-session-btn" onclick="startNewSession()">Start New Session</button>
+    <button class="report-close-btn" onclick="closeSessionReport()">Close Report</button>
   </div>
 </div>
 
@@ -606,6 +659,22 @@
     <div class="history-list" id="historyList">
       <div class="history-empty" id="historyEmpty">No hits yet — start a session</div>
     </div>
+  </div>
+
+  <!-- SAVED SESSIONS -->
+  <div class="sec-label">Saved sessions</div>
+  <div class="card history-card" style="margin-bottom:10px;">
+    <div class="history-header">
+      <div class="history-header-left">
+        <span style="font-size:13px;font-weight:700;">Past Sessions</span>
+        <span class="history-count" id="savedSessionCount">0</span>
+      </div>
+      <button class="history-clear" onclick="clearSavedSessions()">Clear all</button>
+    </div>
+    <div class="saved-list" id="savedSessionList">
+      <div class="history-empty" id="savedSessionEmpty">No saved sessions yet</div>
+    </div>
+    <div class="saved-note">Stored locally in this browser · last 50 sessions</div>
   </div>
 
   <!-- DATA STREAM -->
@@ -905,6 +974,10 @@ let hitCount  = 0;
 let peakVal   = 0;
 let peakZone  = '—';
 let shotHistory = [];  // array of hit objects for this session
+let savedSessions = [];
+
+const SESSION_STORAGE_KEY = 'paddlepals.sessionHistory.v1';
+const MAX_SAVED_SESSIONS = 50;
 
 const ZONE_COLORS = {
   '1': '#a78bfa', '2': '#34d399', '3': '#34d399',
@@ -923,6 +996,205 @@ const SHOTS = [
 
 function classifyShot(zNum, val, gx, gy, gz) {
   return SHOTS.find(s => s.test(zNum, val, gx, gy, gz));
+}
+
+function safeShotInfo(shot) {
+  return {
+    label: shot?.label || 'Rally Shot',
+    icon:  shot?.icon  || '🏓',
+    color: shot?.color || 'var(--accent)',
+  };
+}
+
+function formatDuration(durationSec) {
+  const d = Math.max(0, durationSec || 0);
+  const mins = Math.floor(d / 60);
+  const secs = d % 60;
+  return `${mins}m ${secs}s`;
+}
+
+function formatSessionDate(isoString) {
+  const d = new Date(isoString || Date.now());
+  if (Number.isNaN(d.getTime())) return 'Unknown time';
+  return d.toLocaleString([], {
+    month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit'
+  });
+}
+
+function computeZoneCounts(shots) {
+  const counts = { 1:0, 2:0, 3:0, 4:0, 5:0, 6:0 };
+  shots.forEach(h => {
+    const z = parseInt(h.zone, 10);
+    if (z >= 1 && z <= 6) counts[z]++;
+  });
+  return counts;
+}
+
+function computeShotBreakdown(shots) {
+  const counts = {};
+  shots.forEach(h => {
+    const shot = safeShotInfo(h.shot);
+    counts[shot.label] = counts[shot.label] || { icon:shot.icon, color:shot.color, count:0 };
+    counts[shot.label].count++;
+  });
+  return Object.entries(counts).sort((a, b) => b[1].count - a[1].count);
+}
+
+function buildCurrentSessionSnapshot() {
+  const endedAtMs = Date.now();
+  const shots = shotHistory.map((h, idx) => ({
+    num:    idx + 1,
+    zone:   h.zone,
+    val:    h.val,
+    speed:  h.speed,
+    shot:   safeShotInfo(h.shot),
+    time:   h.time,
+    timeMs: h.timeMs,
+  }));
+
+  const durationSec = sessionStartMs ? Math.max(0, Math.round((endedAtMs - sessionStartMs) / 1000)) : 0;
+  const avgForce = shots.length
+    ? Math.round(shots.reduce((a, h) => a + h.val, 0) / shots.length)
+    : 0;
+  const avgSpeed = shots.length
+    ? Math.round(shots.reduce((a, h) => a + h.speed, 0) / shots.length)
+    : 0;
+  const strongest = shots.reduce((max, h) => h.val > max.val ? h : max, { val: 0, zone: null });
+
+  return {
+    id: `sess_${endedAtMs}_${Math.random().toString(36).slice(2, 7)}`,
+    startedAt: sessionStartMs ? new Date(sessionStartMs).toISOString() : new Date(endedAtMs).toISOString(),
+    endedAt: new Date(endedAtMs).toISOString(),
+    durationSec,
+    hitCount: shots.length,
+    peakVal: strongest.val || 0,
+    peakZone: strongest.zone ? `Z${strongest.zone}` : '—',
+    avgForce,
+    avgSpeed,
+    zoneCounts: computeZoneCounts(shots),
+    shots,
+  };
+}
+
+function readSavedSessions() {
+  try {
+    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) throw new Error('Session history is not an array');
+    return parsed
+      .filter(s => s && typeof s === 'object' && Array.isArray(s.shots))
+      .map((s, idx) => {
+        const shots = s.shots.map((h, hIdx) => ({
+          num: h.num || (hIdx + 1),
+          zone: h.zone,
+          val: Number(h.val) || 0,
+          speed: Number(h.speed) || 0,
+          shot: safeShotInfo(h.shot),
+          time: h.time || Date.now(),
+          timeMs: Number(h.timeMs) || 0,
+        }));
+        const avgForce = Number.isFinite(s.avgForce)
+          ? s.avgForce
+          : (shots.length ? Math.round(shots.reduce((a, h) => a + h.val, 0) / shots.length) : 0);
+        const avgSpeed = Number.isFinite(s.avgSpeed)
+          ? s.avgSpeed
+          : (shots.length ? Math.round(shots.reduce((a, h) => a + h.speed, 0) / shots.length) : 0);
+        return {
+          ...s,
+          id: s.id || `legacy_${Date.now()}_${idx}`,
+          hitCount: Number.isFinite(s.hitCount) ? s.hitCount : shots.length,
+          durationSec: Number.isFinite(s.durationSec) ? s.durationSec : 0,
+          peakVal: Number.isFinite(s.peakVal) ? s.peakVal : 0,
+          peakZone: s.peakZone || '—',
+          avgForce,
+          avgSpeed,
+          zoneCounts: s.zoneCounts || computeZoneCounts(shots),
+          shots,
+        };
+      });
+  } catch (err) {
+    console.warn('Failed to parse saved sessions:', err);
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+    addFeed('Saved history was reset due to invalid data', 'i');
+    return [];
+  }
+}
+
+function writeSavedSessions(list) {
+  try {
+    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(list));
+    return true;
+  } catch (err) {
+    console.warn('Failed to save session history:', err);
+    addFeed('Unable to save session history (storage full?)', 'i');
+    return false;
+  }
+}
+
+function saveCompletedSession(sessionSnapshot) {
+  if (!sessionSnapshot) return;
+  savedSessions = [sessionSnapshot, ...savedSessions].slice(0, MAX_SAVED_SESSIONS);
+  if (!writeSavedSessions(savedSessions)) return;
+  renderSavedSessions();
+  addFeed('Session saved to history', 's');
+}
+
+function renderSavedSessions() {
+  const list = document.getElementById('savedSessionList');
+  const empty = document.getElementById('savedSessionEmpty');
+  const count = document.getElementById('savedSessionCount');
+  count.textContent = String(savedSessions.length);
+
+  list.innerHTML = '';
+  if (!savedSessions.length) {
+    empty.style.display = '';
+    list.appendChild(empty);
+    return;
+  }
+
+  empty.style.display = 'none';
+  savedSessions.forEach((s) => {
+    const row = document.createElement('div');
+    row.className = 'saved-item';
+
+    const peak = s.peakVal ? `${s.peakZone} · ${s.peakVal}` : '—';
+    row.innerHTML = `
+      <div class="saved-main">
+        <div class="saved-title">${formatSessionDate(s.endedAt)}</div>
+        <div class="saved-meta">${formatDuration(s.durationSec)} · ${s.hitCount || 0} shots · peak ${peak}</div>
+      </div>
+      <div class="saved-actions">
+        <button class="saved-btn" type="button">View</button>
+        <button class="saved-btn delete" type="button">Delete</button>
+      </div>
+    `;
+
+    const viewBtn = row.querySelector('.saved-btn');
+    const delBtn  = row.querySelector('.saved-btn.delete');
+    viewBtn.addEventListener('click', () => showSessionReport(s, true));
+    delBtn.addEventListener('click', () => deleteSavedSession(s.id));
+    list.appendChild(row);
+  });
+}
+
+function deleteSavedSession(sessionId) {
+  const target = savedSessions.find(s => s.id === sessionId);
+  if (!target) return;
+  if (!confirm(`Delete saved session from ${formatSessionDate(target.endedAt)}?`)) return;
+  savedSessions = savedSessions.filter(s => s.id !== sessionId);
+  if (!writeSavedSessions(savedSessions)) return;
+  renderSavedSessions();
+}
+
+function clearSavedSessions() {
+  if (!savedSessions.length) return;
+  if (!confirm('Clear all saved sessions from this browser?')) return;
+  savedSessions = [];
+  if (!writeSavedSessions(savedSessions)) return;
+  renderSavedSessions();
+  addFeed('Saved session history cleared', 'i');
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1084,11 +1356,12 @@ function processHit(data) {
 function renderHistoryItem(h) {
   const list = document.getElementById('historyList');
   const el = document.createElement('div');
+  const shot = safeShotInfo(h.shot);
   el.className = 'history-item';
   el.innerHTML = `
     <span class="history-num">#${h.num}</span>
     <span class="history-zone" style="color:${ZONE_COLORS[h.zone]??'#fff'}">Z${h.zone}</span>
-    <span class="history-type" style="color:${h.shot.color}">${h.shot.icon} ${h.shot.label}</span>
+    <span class="history-type" style="color:${shot.color}">${shot.icon} ${shot.label}</span>
     <span class="history-force" style="color:${h.val>150?'var(--pink)':h.val>80?'var(--amber)':'var(--muted)'}">${h.val}</span>
     <span class="history-speed">${h.speed}°/s</span>
   `;
@@ -1122,36 +1395,41 @@ function clearHistory() {
 // ═══════════════════════════════════════════════════════
 function endSession() {
   if (!sessionActive && shotHistory.length === 0) return;
+  const snapshot = buildCurrentSessionSnapshot();
+  if (snapshot.hitCount > 0) saveCompletedSession(snapshot);
   sessionActive = false;
   updateButtons();
   sendCmd('RESET');
-  showSessionReport();
+  showSessionReport(snapshot, false);
 }
 
-function showSessionReport() {
+function showSessionReport(sessionSnapshot = null, isHistorical = false) {
+  const session = sessionSnapshot || buildCurrentSessionSnapshot();
   const overlay = document.getElementById('sessionOverlay');
+  const titleEl = document.getElementById('reportTitle');
   overlay.classList.remove('hidden');
 
+  titleEl.innerHTML = isHistorical ? 'Session <em>History</em>' : 'Session <em>Complete</em>';
+  const shots = Array.isArray(session.shots) ? session.shots : [];
+
   // Duration
-  const dur = sessionStartMs ? Math.round((Date.now()-sessionStartMs)/1000) : 0;
+  const dur = session.durationSec || 0;
   const mins = Math.floor(dur/60), secs = dur%60;
+  const savedStamp = session.endedAt ? ` · ${formatSessionDate(session.endedAt)}` : '';
   document.getElementById('reportDuration').textContent =
-    `${mins}m ${secs}s · ${shotHistory.length} shots`;
+    `${mins}m ${secs}s · ${shots.length} shots${savedStamp}`;
 
   // Summary stats
-  const avgForce = shotHistory.length
-    ? Math.round(shotHistory.reduce((a,h)=>a+h.val,0)/shotHistory.length)
-    : 0;
-  const avgSpeed = shotHistory.length
-    ? Math.round(shotHistory.reduce((a,h)=>a+h.speed,0)/shotHistory.length)
-    : 0;
+  const avgForce = session.avgForce || 0;
+  const avgSpeed = session.avgSpeed || 0;
+  const peak = session.peakVal || 0;
   document.getElementById('reportStats').innerHTML = `
     <div class="report-stat">
-      <div class="report-stat-val" style="color:var(--accent)">${shotHistory.length}</div>
+      <div class="report-stat-val" style="color:var(--accent)">${shots.length}</div>
       <div class="report-stat-lbl">Total hits</div>
     </div>
     <div class="report-stat">
-      <div class="report-stat-val" style="color:var(--pink)">${peakVal||'—'}</div>
+      <div class="report-stat-val" style="color:var(--pink)">${peak||'—'}</div>
       <div class="report-stat-lbl">Peak force</div>
     </div>
     <div class="report-stat">
@@ -1165,9 +1443,7 @@ function showSessionReport() {
   `;
 
   // Zone bar chart
-  const zoneCounts = {};
-  for (let i=1;i<=6;i++) zoneCounts[i]=0;
-  shotHistory.forEach(h => zoneCounts[parseInt(h.zone)]++);
+  const zoneCounts = session.zoneCounts || computeZoneCounts(shots);
   const maxZone = Math.max(...Object.values(zoneCounts), 1);
   const zoneBarColors = { 1:'#a78bfa',2:'#34d399',3:'#34d399',4:'#6ee7f7',5:'#a78bfa',6:'#fbbf24' };
   document.getElementById('zoneBarChart').innerHTML =
@@ -1182,15 +1458,10 @@ function showSessionReport() {
     `).join('');
 
   // Force over time canvas chart
-  drawForceChart();
+  drawForceChart(shots);
 
   // Shot type breakdown
-  const shotCounts = {};
-  shotHistory.forEach(h => {
-    shotCounts[h.shot.label] = shotCounts[h.shot.label] || { icon:h.shot.icon, color:h.shot.color, count:0 };
-    shotCounts[h.shot.label].count++;
-  });
-  const sortedShots = Object.entries(shotCounts).sort((a,b)=>b[1].count-a[1].count);
+  const sortedShots = computeShotBreakdown(shots);
   const maxShot = sortedShots.length ? sortedShots[0][1].count : 1;
   document.getElementById('shotBreakdown').innerHTML =
     sortedShots.map(([label,s])=>`
@@ -1203,7 +1474,7 @@ function showSessionReport() {
     `).join('');
 }
 
-function drawForceChart() {
+function drawForceChart(shots = shotHistory) {
   const canvas = document.getElementById('forceCanvas');
   const W = canvas.parentElement.clientWidth;
   const H = 80;
@@ -1214,7 +1485,7 @@ function drawForceChart() {
   const ctx = canvas.getContext('2d');
   ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
 
-  if (shotHistory.length === 0) {
+  if (shots.length === 0) {
     ctx.fillStyle = '#383860';
     ctx.font = '10px JetBrains Mono';
     ctx.textAlign = 'center';
@@ -1225,9 +1496,9 @@ function drawForceChart() {
   const pad = { l:8, r:8, t:8, b:8 };
   const cw = W - pad.l - pad.r;
   const ch = H - pad.t - pad.b;
-  const maxV = Math.max(...shotHistory.map(h=>h.val), 1);
-  const pts  = shotHistory.map((h,i)=>({
-    x: pad.l + (i/(Math.max(shotHistory.length-1,1)))*cw,
+  const maxV = Math.max(...shots.map(h=>h.val), 1);
+  const pts  = shots.map((h,i)=>({
+    x: pad.l + (i/(Math.max(shots.length-1,1)))*cw,
     y: pad.t + ch - (h.val/maxV)*ch,
     v: h.val,
   }));
@@ -1270,6 +1541,10 @@ function drawForceChart() {
   });
 }
 
+function closeSessionReport() {
+  document.getElementById('sessionOverlay').classList.add('hidden');
+}
+
 function startNewSession() {
   document.getElementById('sessionOverlay').classList.add('hidden');
   resetSessionState();
@@ -1310,6 +1585,8 @@ function addFeed(txt, cls) {
 function clearFeed() { document.getElementById('feed').innerHTML=''; }
 
 // ── Init ──
+savedSessions = readSavedSessions();
+renderSavedSessions();
 updateButtons();
 // Show calibration on load so user calibrates before connecting
 // (they can skip if not yet connected)
