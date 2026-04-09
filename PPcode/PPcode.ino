@@ -1,9 +1,8 @@
 // Comment this out when done developing to remove ALL serial output
-#define DEBUG
+//#define DEBUG
 
 #include <ArduinoBLE.h>
 #include <Arduino_BMI270_BMM150.h>
-#include "TickTwo.h"
 
 // =============================================================================
 // ZONE CONFIG
@@ -32,41 +31,72 @@ BLEStringCharacteristic fsrCharacteristic(
 );
 BLEStringCharacteristic imuCharacteristic(
   "beb5483e-36e1-4688-b7f5-ea07361b26a9",
-  BLERead | BLENotify, 80
+  BLERead | BLENotify, 120
 );
-// New: writable characteristic for commands from the web app
-// Web sends: "START", "RESET", "SHUTDOWN"
-// Arduino sends back: "STATUS:SESSION_STARTED", "STATUS:SESSION_RESET"
 BLEStringCharacteristic cmdCharacteristic(
   "beb5483e-36e1-4688-b7f5-ea07361b26aa",
   BLEWrite | BLERead, 32
 );
 
 // =============================================================================
-// HIT DETECTION
+// HIT RING BUFFER
 // =============================================================================
-const int DEBOUNCE_TIME = 150;
+struct HitRecord {
+  uint8_t  zone;
+  uint8_t  peak;
+  float    gx, gy, gz;
+};
+const int HIT_BUF_SIZE = 16;
+HitRecord hitBuf[HIT_BUF_SIZE];
+uint8_t hitHead = 0;
+uint8_t hitTail = 0;
 
+// =============================================================================
+// FSR STATE
+// =============================================================================
 int           zonePeak[6]    = {0};
 bool          zoneActive[6]  = {false};
 unsigned long zoneLastHit[6] = {0};
 
+const unsigned long DEBOUNCE_TIME = 150;
+
 // =============================================================================
 // IMU
 // =============================================================================
-struct IMUSnapshot { float gx,gy,gz,ax,ay,az; bool fresh; };
-IMUSnapshot imuLatest = {0,0,0,0,0,0,false};
+float latestGx=0, latestGy=0, latestGz=0;
+float latestAx=0, latestAy=0, latestAz=0;
+float cachedMx=0, cachedMy=0, cachedMz=0;
 
 unsigned long lastIMURead = 0;
-const unsigned long IMU_INTERVAL_MS = 5;
+const unsigned long IMU_INTERVAL_MS = 50;
+
+char imuBuf[128];
+bool imuReady = false;
 
 // =============================================================================
 // SESSION STATE
 // =============================================================================
-bool   sessionActive  = false;
-String hitDataString  = "";
-String imuDataString  = "";
-String statusString   = "";  // queued status message to send
+bool sessionActive  = false;
+const char* pendingStatus = nullptr;
+
+// =============================================================================
+// TIMING
+// =============================================================================
+unsigned long lastHousekeeping = 0;
+unsigned long lastBLESend      = 0;
+unsigned long lastBlink        = 0;
+unsigned long paddleLightOffAt = 0;
+bool          blinkState       = false;
+unsigned long buttonDownSince  = 0;
+bool          holdFired        = false;
+
+// ── Housekeeping runs every 15 ms — that means the FSR loop runs
+//    uninterrupted for ~15 ms at a time.  At ~40 µs per analogRead × 6
+//    = ~240 µs per full scan, that's ~62 complete scans per burst,
+//    or roughly one scan every 240 µs — well within the 1 ms hit window.
+const unsigned long HOUSEKEEPING_INTERVAL = 300;
+const unsigned long BLE_SEND_INTERVAL     = 300;
+const unsigned long BLINK_INTERVAL        = 500;
 
 // =============================================================================
 // LED HELPERS
@@ -82,33 +112,12 @@ void handleGreen() { setLED(LOW, HIGH,LOW, H_R2,H_G2,H_B2); }
 void handleWhite() { setLED(HIGH,HIGH,HIGH,H_R2,H_G2,H_B2); }
 
 // =============================================================================
-// FORWARD DECLARATIONS
-// =============================================================================
-void sendBLE();
-void paddleLightOff();
-void toggleBlink();
-void checkHoldStart();
-void checkHoldReset();
-
-// =============================================================================
-// TICKERS
-// =============================================================================
-TickTwo bleTicker(sendBLE,100,0,MILLIS);
-TickTwo paddleLightTicker(paddleLightOff,300,1,MILLIS);
-TickTwo blinkTicker(toggleBlink,500,0,MILLIS);
-TickTwo startHoldTicker(checkHoldStart,1000,1,MILLIS);
-TickTwo resetHoldTicker(checkHoldReset,2000,1,MILLIS);
-
-// =============================================================================
-// SHARED START / RESET LOGIC
-// (called from both physical button and BLE command)
+// SESSION CONTROL
 // =============================================================================
 void doStart() {
   sessionActive = true;
-  blinkTicker.stop();
-  bleTicker.start();
+  pendingStatus = "STATUS:SESSION_STARTED";
   handleGreen();
-  statusString = "STATUS:SESSION_STARTED";
   #ifdef DEBUG
     Serial.println("SESSION STARTED");
   #endif
@@ -116,15 +125,15 @@ void doStart() {
 
 void doReset() {
   sessionActive = false;
-  hitDataString = "";
-  imuDataString = "";
-  statusString  = "STATUS:SESSION_RESET";
-  for (int i=0;i<numZones;i++){
-    zoneActive[i]=false; zonePeak[i]=0; zoneLastHit[i]=0;
+  pendingStatus = "STATUS:SESSION_RESET";
+  hitHead = hitTail = 0;
+  imuReady = false;
+  for (int i = 0; i < numZones; i++) {
+    zoneActive[i] = false; zonePeak[i] = 0; zoneLastHit[i] = 0;
   }
-  imuLatest = {0,0,0,0,0,0,false};
-  paddleLightTicker.stop();
-  bleTicker.stop();
+  latestGx=latestGy=latestGz=0;
+  latestAx=latestAy=latestAz=0;
+  paddleLightOffAt = 0;
   paddleWhite();
   handleBlue();
   #ifdef DEBUG
@@ -137,50 +146,131 @@ void doShutdown() {
   #ifdef DEBUG
     Serial.println("SHUTDOWN");
   #endif
-  while(1);
 }
 
 // =============================================================================
-// TICKER CALLBACKS
+// BLE SEND
 // =============================================================================
 void sendBLE() {
   if (!BLE.connected()) return;
 
-  // Send status update first (highest priority)
-  if (statusString.length() > 0) {
-    fsrCharacteristic.writeValue(statusString);
-    statusString = "";
+  if (pendingStatus) {
+    fsrCharacteristic.writeValue(pendingStatus);
+    pendingStatus = nullptr;
     return;
   }
 
-  if (hitDataString.length() > 0) {
-    fsrCharacteristic.writeValue(hitDataString);
+  if (hitHead != hitTail) {
+    char buf[100];
+    int pos = 0;
+    while (hitTail != hitHead && pos < 80) {
+      HitRecord &h = hitBuf[hitTail];
+      int w = snprintf(buf + pos, sizeof(buf) - pos,
+        "Z%d:%d,GX:%.1f,GY:%.1f,GZ:%.1f\n",
+        h.zone + 1, h.peak, h.gx, h.gy, h.gz);
+      if (w > 0) pos += w;
+      hitTail = (hitTail + 1) & (HIT_BUF_SIZE - 1);
+    }
+    if (pos > 0) {
+      buf[pos] = '\0';
+      fsrCharacteristic.writeValue(buf);
+      #ifdef DEBUG
+        Serial.print("BLE HIT: "); Serial.print(buf);
+      #endif
+    }
+  }
+
+  if (imuReady) {
+    imuCharacteristic.writeValue(imuBuf);
+    imuReady = false;
+  }
+}
+
+// =============================================================================
+// HOUSEKEEPING — runs every ~15 ms, handles BLE, IMU, buttons, LEDs
+// =============================================================================
+void doHousekeeping() {
+  unsigned long now = millis();
+
+  // ── Shutdown pin ──
+  if (digitalRead(interrupt_1) == LOW) { doShutdown(); return; }
+
+  // ── Paddle light auto-off ──
+  if (paddleLightOffAt && now >= paddleLightOffAt) {
+    paddleOff();
+    paddleLightOffAt = 0;
+  }
+
+  // ── BLE poll ──
+  BLE.poll(0);
+
+  // ── BLE commands ──
+  if (cmdCharacteristic.written()) {
+    String cmd = cmdCharacteristic.value();
+    cmd.trim();
     #ifdef DEBUG
-      Serial.print("BLE HIT: "); Serial.println(hitDataString);
+      Serial.print("CMD received: "); Serial.println(cmd);
     #endif
-    hitDataString = "";
+    if      (cmd == "START")    { if (!sessionActive) doStart(); }
+    else if (cmd == "RESET")    { doReset(); }
+    else if (cmd == "SHUTDOWN") { doShutdown(); }
+    cmdCharacteristic.writeValue("");
   }
 
-  if (imuDataString.length() > 0) {
-    imuCharacteristic.writeValue(imuDataString);
-    imuDataString = "";
+  // ── Connection LED ──
+  if (!BLE.connected() && !sessionActive) {
+    if (now - lastBlink >= BLINK_INTERVAL) {
+      lastBlink = now;
+      blinkState = !blinkState;
+      blinkState ? handleWhite() : handleOff();
+    }
+  } else if (!sessionActive) {
+    handleBlue();
   }
-}
 
-void paddleLightOff() { paddleOff(); }
+  // ── BLE send ──
+  if (now - lastBLESend >= BLE_SEND_INTERVAL) {
+    lastBLESend = now;
+    sendBLE();
+  }
 
-bool blinkState = false;
-void toggleBlink() {
-  blinkState = !blinkState;
-  blinkState ? handleWhite() : handleOff();
-}
+  // ── Button ──
+  bool bp = (digitalRead(button1) == LOW);
+  if (bp) {
+    if (buttonDownSince == 0) { buttonDownSince = now; holdFired = false; }
+    if (!holdFired) {
+      if (!sessionActive && BLE.connected() && (now - buttonDownSince >= 1000)) {
+        doStart(); holdFired = true;
+      }
+      if (sessionActive && (now - buttonDownSince >= 2000)) {
+        doReset(); holdFired = true;
+      }
+    }
+  } else {
+    buttonDownSince = 0;
+  }
 
-void checkHoldStart() {
-  if (digitalRead(button1) == LOW && BLE.connected()) doStart();
-}
+  // ── IMU — only during session ──
+  if (sessionActive && (now - lastIMURead >= IMU_INTERVAL_MS)) {
+    lastIMURead = now;
+    float gx,gy,gz,ax,ay,az;
+    if (IMU.gyroscopeAvailable()    && IMU.readGyroscope(gx,gy,gz) &&
+        IMU.accelerationAvailable() && IMU.readAcceleration(ax,ay,az)) {
 
-void checkHoldReset() {
-  if (digitalRead(button1) == LOW) doReset();
+      latestGx=gx; latestGy=gy; latestGz=gz;
+      latestAx=ax; latestAy=ay; latestAz=az;
+
+      if (IMU.magneticFieldAvailable()) {
+        IMU.readMagneticField(cachedMx, cachedMy, cachedMz);
+      }
+
+      unsigned long t = micros();
+      snprintf(imuBuf, sizeof(imuBuf),
+        "T:%lu,GX:%.1f,GY:%.1f,GZ:%.1f,AX:%.2f,AY:%.2f,AZ:%.2f,MX:%.1f,MY:%.1f,MZ:%.1f",
+        t, gx,gy,gz, ax,ay,az, cachedMx,cachedMy,cachedMz);
+      imuReady = true;
+    }
+  }
 }
 
 // =============================================================================
@@ -193,8 +283,8 @@ void setup() {
     Serial.println("System booting...");
   #endif
 
-  pinMode(P_G1,OUTPUT);pinMode(P_R1,OUTPUT);pinMode(P_B1,OUTPUT);
-  pinMode(H_G2,OUTPUT);pinMode(H_R2,OUTPUT);pinMode(H_B2,OUTPUT);
+  pinMode(P_G1,OUTPUT); pinMode(P_R1,OUTPUT); pinMode(P_B1,OUTPUT);
+  pinMode(H_G2,OUTPUT); pinMode(H_R2,OUTPUT); pinMode(H_B2,OUTPUT);
   pinMode(button1,INPUT_PULLUP);
   pinMode(interrupt_1,INPUT_PULLUP);
   pinMode(kill_switch,OUTPUT); digitalWrite(kill_switch,HIGH);
@@ -208,7 +298,12 @@ void setup() {
     while(1);
   }
 
-  blinkTicker.start();
+  #ifdef DEBUG
+    Serial.print("Gyro sample rate: ");  Serial.println(IMU.gyroscopeSampleRate());
+    Serial.print("Accel sample rate: "); Serial.println(IMU.accelerationSampleRate());
+    Serial.print("Mag sample rate: ");   Serial.println(IMU.magneticFieldSampleRate());
+  #endif
+
   paddleWhite();
 
   if (!BLE.begin()) {
@@ -221,7 +316,7 @@ void setup() {
   BLE.setAdvertisedService(paddleService);
   paddleService.addCharacteristic(fsrCharacteristic);
   paddleService.addCharacteristic(imuCharacteristic);
-  paddleService.addCharacteristic(cmdCharacteristic);   // ← new
+  paddleService.addCharacteristic(cmdCharacteristic);
   BLE.addService(paddleService);
   fsrCharacteristic.writeValue("Waiting...");
   imuCharacteristic.writeValue("Waiting...");
@@ -235,105 +330,75 @@ void setup() {
 
 // =============================================================================
 // MAIN LOOP
+//
+// Structure:
+//   1. Check if housekeeping is due (every 15 ms) — if so, do it
+//   2. Otherwise, slam through FSR reads as fast as possible
+//
+// During the ~15 ms between housekeeping windows, the loop does NOTHING
+// except analogRead × 6 + peak/hit check.  At ~40 µs per read × 6 pins
+// = ~240 µs per full scan, we get ~62 scans per 15 ms burst — roughly
+// 4 scans per millisecond, well within the 1 ms dwell window.
 // =============================================================================
 void loop() {
-  BLE.poll(0);
+  unsigned long now = millis();
 
-  bleTicker.update();
-  paddleLightTicker.update();
-  blinkTicker.update();
-  startHoldTicker.update();
-  resetHoldTicker.update();
-
-  if (digitalRead(interrupt_1) == LOW) doShutdown();
-
-  // ── Handle BLE commands from web app ──
-  if (cmdCharacteristic.written()) {
-    String cmd = cmdCharacteristic.value();
-    cmd.trim();
-    #ifdef DEBUG
-      Serial.print("CMD received: "); Serial.println(cmd);
-    #endif
-    if      (cmd == "START")    { if (!sessionActive) doStart(); }
-    else if (cmd == "RESET")    { doReset(); }
-    else if (cmd == "SHUTDOWN") { doShutdown(); }
-    // Clear the value so we don't re-process it
-    cmdCharacteristic.writeValue("");
+  // ── Housekeeping break every 15 ms ──
+  if (now - lastHousekeeping >= HOUSEKEEPING_INTERVAL) {
+    lastHousekeeping = now;
+    doHousekeeping();
+    return;   // give the full loop iteration to housekeeping, resume scanning next pass
   }
 
-  // ── BLE connection LED state ──
-  if (!BLE.connected()) {
-    if (blinkTicker.state() != RUNNING) blinkTicker.start();
-  } else if (!sessionActive) {
-    blinkTicker.stop();
-    handleBlue();
+  // ── If not in session, nothing to scan — just idle ──
+  if (!sessionActive) return;
+
+  // ══════════════════════════════════════════════════════════════════════
+  // FSR HOT PATH — this is the ONLY code that runs between housekeeping
+  // ══════════════════════════════════════════════════════════════════════
+
+  // Sample all 6 pins
+  for (int i = 0; i < numZones; i++) {
+    int r = analogRead(zonePins[i]);
+    if (r > zonePeak[i]) zonePeak[i] = r;
   }
 
-  // ── Physical button logic ──
-  bool buttonPressed = (digitalRead(button1) == LOW);
-  if (!sessionActive) {
-    if (buttonPressed && BLE.connected()) {
-      if (startHoldTicker.state() != RUNNING) startHoldTicker.start();
-    } else {
-      startHoldTicker.stop();
-    }
-  } else {
-    if (buttonPressed) {
-      if (resetHoldTicker.state() != RUNNING) resetHoldTicker.start();
-    } else {
-      resetHoldTicker.stop();
-    }
-  }
+  // Evaluate hits
+  for (int i = 0; i < numZones; i++) {
+    bool over     = (zonePeak[i] > threshold);
+    bool debounce = (now - zoneLastHit[i]) >= DEBOUNCE_TIME;
 
-  if (sessionActive) {
-    unsigned long now = millis();
+    if (over && !zoneActive[i] && debounce) {
+      zoneActive[i]  = true;
+      zoneLastHit[i] = now;
 
-    // IMU poll
-    if (now - lastIMURead >= IMU_INTERVAL_MS) {
-      lastIMURead = now;
-      float gx,gy,gz,ax,ay,az;
-      if (IMU.gyroscopeAvailable()    && IMU.readGyroscope(gx,gy,gz) &&
-          IMU.accelerationAvailable() && IMU.readAcceleration(ax,ay,az)) {
-        unsigned long t = micros();
-        imuLatest = {gx,gy,gz,ax,ay,az,true};
-        imuDataString  = "T:";  imuDataString += String(t);
-        imuDataString += ",GX:"; imuDataString += String(gx,1);
-        imuDataString += ",GY:"; imuDataString += String(gy,1);
-        imuDataString += ",GZ:"; imuDataString += String(gz,1);
-        imuDataString += ",AX:"; imuDataString += String(ax,2);
-        imuDataString += ",AY:"; imuDataString += String(ay,2);
-        imuDataString += ",AZ:"; imuDataString += String(az,2);
+      // Push to ring buffer — no string work
+      uint8_t next = (hitHead + 1) & (HIT_BUF_SIZE - 1);
+      if (next != hitTail) {
+        HitRecord &h = hitBuf[hitHead];
+        h.zone = i;
+        h.peak = zonePeak[i];
+        h.gx   = latestGx;
+        h.gy   = latestGy;
+        h.gz   = latestGz;
+        hitHead = next;
       }
-    }
 
-    // FSR sampling
-    for (int i=0;i<numZones;i++){
-      int r=analogRead(zonePins[i]);
-      if(r>zonePeak[i]) zonePeak[i]=r;
-    }
-
-    // Hit detection
-    for (int i=0;i<numZones;i++){
-      bool over    = zonePeak[i] > threshold;
-      bool debounce= (now - zoneLastHit[i]) >= DEBOUNCE_TIME;
-      if (over && !zoneActive[i] && debounce) {
-        zoneActive[i]=true; zoneLastHit[i]=now;
-        IMUSnapshot snap=imuLatest; imuLatest.fresh=false;
-        hitDataString += "Z"; hitDataString += String(i+1);
-        hitDataString += ":"; hitDataString += String(zonePeak[i]);
-        hitDataString += ",GX:"; hitDataString += String(snap.gx,1);
-        hitDataString += ",GY:"; hitDataString += String(snap.gy,1);
-        hitDataString += ",GZ:"; hitDataString += String(snap.gz,1);
-        hitDataString += "\n";
-        if(i==0) paddleGreen(); else paddleRed();
-        paddleLightTicker.start();
-        #ifdef DEBUG
-          Serial.print("HIT Z"); Serial.print(i+1);
-          Serial.print(" val="); Serial.println(zonePeak[i]);
-        #endif
+      // LED — direct GPIO, no function call overhead
+      if (i == 0) {
+        digitalWrite(P_R1, LOW); digitalWrite(P_G1, HIGH); digitalWrite(P_B1, LOW);
+      } else {
+        digitalWrite(P_R1, HIGH); digitalWrite(P_G1, LOW); digitalWrite(P_B1, LOW);
       }
-      if(!over) zoneActive[i]=false;
-      zonePeak[i]=0;
+      paddleLightOffAt = now + 300;
+
+      #ifdef DEBUG
+        Serial.print("HIT Z"); Serial.print(i+1);
+        Serial.print(" val="); Serial.println(zonePeak[i]);
+      #endif
     }
+
+    if (!over) zoneActive[i] = false;
+    zonePeak[i] = 0;
   }
 }
