@@ -1226,17 +1226,19 @@ socket.onmessage = (e) => {
 function processStatus(data) {
   // Arduino can send STATUS:SESSION_STARTED / STATUS:SESSION_RESET etc
   if (data === 'SESSION_STARTED') {
+    // Ignore late SESSION_STARTED while we are ending/resetting from web.
+    if (pendingWebReset) return;
     sessionActive = true;
     sessionStartMs = sessionStartMs || Date.now();
     updateButtons();
     addFeed('Session confirmed by paddle', 's');
+    return;
   }
   if (data === 'SESSION_RESET') {
     if (pendingWebReset) {
-      // Echo from our own CMD:RESET (endSession or webReset) — already handled
+      // Echo from our own CMD:RESET (endSession or webReset) — already handled locally.
       pendingWebReset = false;
-      resetSessionState();
-      updateButtons();
+      addFeed('Session reset confirmed by paddle', 'i');
       return;
     }
     // Arduino-initiated reset (hardware button) — save and show report before clearing
@@ -1418,11 +1420,16 @@ function clearHistory() {
 // POST-SESSION REPORT
 // ═══════════════════════════════════════════════════════
 function endSession() {
-  if (!sessionActive && shotHistory.length === 0) return;
+  if (!sessionActive && shotHistory.length === 0) {
+    addFeed('No active session to end', 'i');
+    return;
+  }
+
   const snapshot = buildCurrentSessionSnapshot();
   if (snapshot.hitCount > 0) saveCompletedSession(snapshot);
-  sessionActive = false;
-  updateButtons();
+
+  // Move UI to ready state immediately; do not wait for RESET echo round-trip.
+  resetSessionState();
   pendingWebReset = true;
   sendCmd('RESET');
   showSessionReport(snapshot, false);
