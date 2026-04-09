@@ -975,6 +975,7 @@ let peakVal   = 0;
 let peakZone  = '—';
 let shotHistory = [];  // array of hit objects for this session
 let savedSessions = [];
+let pendingLocalResetAck = false;
 
 const SESSION_STORAGE_KEY = 'paddlepals.sessionHistory.v1';
 const MAX_SAVED_SESSIONS = 50;
@@ -1141,6 +1142,18 @@ function saveCompletedSession(sessionSnapshot) {
   addFeed('Session saved to history', 's');
 }
 
+function hasSessionData() {
+  return sessionActive || shotHistory.length > 0;
+}
+
+function finalizeSessionAndReset({ saveToHistory = true, showReport = true } = {}) {
+  const snapshot = buildCurrentSessionSnapshot();
+  if (saveToHistory && snapshot.hitCount > 0) saveCompletedSession(snapshot);
+  if (showReport) showSessionReport(snapshot, false);
+  resetSessionState();
+  return snapshot;
+}
+
 function renderSavedSessions() {
   const list = document.getElementById('savedSessionList');
   const empty = document.getElementById('savedSessionEmpty');
@@ -1224,8 +1237,32 @@ socket.onmessage = (e) => {
 
 function processStatus(data) {
   // Arduino can send STATUS:SESSION_STARTED / STATUS:SESSION_RESET etc
-  if (data === 'SESSION_STARTED') { sessionActive=true; sessionStartMs=Date.now(); updateButtons(); }
-  if (data === 'SESSION_RESET')   { resetSessionState(); updateButtons(); }
+  if (data === 'SESSION_STARTED') {
+    pendingLocalResetAck = false;
+    sessionActive = true;
+    if (!sessionStartMs) sessionStartMs = Date.now();
+    updateButtons();
+    return;
+  }
+
+  if (data === 'SESSION_RESET') {
+    if (pendingLocalResetAck) {
+      // Consume RESET echo for a command initiated by this dashboard.
+      pendingLocalResetAck = false;
+      return;
+    }
+
+    // Hardware-initiated reset/end: preserve a completed session before clearing.
+    if (hasSessionData()) {
+      finalizeSessionAndReset({ saveToHistory: true, showReport: true });
+      addFeed('Session ended from paddle', 's');
+      return;
+    }
+
+    resetSessionState();
+    addFeed('Session reset from paddle', 'i');
+    return;
+  }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1237,7 +1274,7 @@ function updateButtons() {
   document.getElementById('btnReset').disabled    = !connected;
   document.getElementById('btnShutdown').disabled = !connected;
   document.getElementById('btnCalibrate').disabled= !connected;
-  document.getElementById('btnEndSession').disabled = !connected || !sessionActive;
+  document.getElementById('btnEndSession').disabled = !connected || (!sessionActive && shotHistory.length === 0);
 }
 
 function webStart() {
@@ -1250,6 +1287,7 @@ function webStart() {
 
 function webReset() {
   if (!confirm('Reset session? This clears all current hit data.')) return;
+  pendingLocalResetAck = true;
   sendCmd('RESET');
   resetSessionState();
   Madgwick.reset();
@@ -1312,6 +1350,14 @@ function processIMU(data) {
 function processHit(data) {
   const zm = data.match(/Z(\d+):(\d+)/);
   if (!zm) return;
+
+  // If STATUS:SESSION_STARTED was missed, infer an active session from real hit traffic.
+  if (!sessionActive) {
+    sessionActive = true;
+    if (!sessionStartMs) sessionStartMs = Date.now();
+    updateButtons();
+  }
+
   const zNum=zm[1], val=parseInt(zm[2]);
   const gx=getF(data,'GX'), gy=getF(data,'GY'), gz=getF(data,'GZ');
   const speed=Math.round(Math.sqrt(gx*gx+gy*gy+gz*gz));
@@ -1394,13 +1440,14 @@ function clearHistory() {
 // POST-SESSION REPORT
 // ═══════════════════════════════════════════════════════
 function endSession() {
-  if (!sessionActive && shotHistory.length === 0) return;
-  const snapshot = buildCurrentSessionSnapshot();
-  if (snapshot.hitCount > 0) saveCompletedSession(snapshot);
-  sessionActive = false;
-  updateButtons();
+  if (!hasSessionData()) {
+    addFeed('No active session to end', 'i');
+    return;
+  }
+
+  finalizeSessionAndReset({ saveToHistory: true, showReport: true });
+  pendingLocalResetAck = true;
   sendCmd('RESET');
-  showSessionReport(snapshot, false);
 }
 
 function showSessionReport(sessionSnapshot = null, isHistorical = false) {
@@ -1476,13 +1523,16 @@ function showSessionReport(sessionSnapshot = null, isHistorical = false) {
 
 function drawForceChart(shots = shotHistory) {
   const canvas = document.getElementById('forceCanvas');
-  const W = canvas.parentElement.clientWidth;
+  if (!canvas || !canvas.parentElement) return;
+  let W = canvas.parentElement.clientWidth;
+  if (!Number.isFinite(W) || W <= 0) W = 300;
   const H = 80;
   canvas.width  = W * window.devicePixelRatio;
   canvas.height = H * window.devicePixelRatio;
   canvas.style.width  = W + 'px';
   canvas.style.height = H + 'px';
   const ctx = canvas.getContext('2d');
+  if (!ctx) return;
   ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
 
   if (shots.length === 0) {
