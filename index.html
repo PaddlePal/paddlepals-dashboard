@@ -975,6 +975,7 @@ let peakVal   = 0;
 let peakZone  = '—';
 let shotHistory = [];  // array of hit objects for this session
 let savedSessions = [];
+let pendingWebReset = false;  // flag to prevent double-save when web endSession triggers Arduino echo
 
 const SESSION_STORAGE_KEY = 'paddlepals.sessionHistory.v1';
 const MAX_SAVED_SESSIONS = 50;
@@ -1225,7 +1226,25 @@ socket.onmessage = (e) => {
 function processStatus(data) {
   // Arduino can send STATUS:SESSION_STARTED / STATUS:SESSION_RESET etc
   if (data === 'SESSION_STARTED') { sessionActive=true; sessionStartMs=Date.now(); updateButtons(); }
-  if (data === 'SESSION_RESET')   { resetSessionState(); updateButtons(); }
+  if (data === 'SESSION_RESET') {
+    if (pendingWebReset) {
+      // Echo from our own CMD:RESET via endSession — already saved, just clean up
+      pendingWebReset = false;
+      resetSessionState();
+      updateButtons();
+      return;
+    }
+    // Arduino-initiated reset (hardware button) — save before clearing
+    if (shotHistory.length > 0) {
+      const snapshot = buildCurrentSessionSnapshot();
+      if (snapshot.hitCount > 0) {
+        saveCompletedSession(snapshot);
+        showSessionReport(snapshot, false);
+      }
+    }
+    resetSessionState();
+    updateButtons();
+  }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1237,7 +1256,7 @@ function updateButtons() {
   document.getElementById('btnReset').disabled    = !connected;
   document.getElementById('btnShutdown').disabled = !connected;
   document.getElementById('btnCalibrate').disabled= !connected;
-  document.getElementById('btnEndSession').disabled = !connected || !sessionActive;
+  document.getElementById('btnEndSession').disabled = !connected || (!sessionActive && shotHistory.length === 0);
 }
 
 function webStart() {
@@ -1399,6 +1418,7 @@ function endSession() {
   if (snapshot.hitCount > 0) saveCompletedSession(snapshot);
   sessionActive = false;
   updateButtons();
+  pendingWebReset = true;
   sendCmd('RESET');
   showSessionReport(snapshot, false);
 }
