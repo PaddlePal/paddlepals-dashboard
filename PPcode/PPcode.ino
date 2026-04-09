@@ -141,6 +141,19 @@ void doReset() {
   #endif
 }
 
+
+void doEnd() {
+  sessionActive = false;
+  pendingStatus = "STATUS:SESSION_ENDED";
+
+  handleBlue();   // or whatever idle color you want
+
+  #ifdef DEBUG
+    Serial.println("SESSION ENDED");
+  #endif
+}
+
+
 void doShutdown() {
   digitalWrite(kill_switch, LOW);
   #ifdef DEBUG
@@ -211,9 +224,10 @@ void doHousekeeping() {
     #ifdef DEBUG
       Serial.print("CMD received: "); Serial.println(cmd);
     #endif
-    if      (cmd == "START")    { if (!sessionActive) doStart(); }
-    else if (cmd == "RESET")    { doReset(); }
-    else if (cmd == "SHUTDOWN") { doShutdown(); }
+  if      (cmd == "START")    { if (!sessionActive) doStart(); }
+  else if (cmd == "RESET")    { doReset(); }
+  else if (cmd == "END")      { if (sessionActive) doEnd(); }
+  else if (cmd == "SHUTDOWN") { doShutdown(); }
     cmdCharacteristic.writeValue("");
   }
 

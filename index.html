@@ -475,7 +475,7 @@
 <body>
 
 <!-- ═══════════════════════════════ CALIBRATION OVERLAY ═══════════════════════════════ -->
-<div class="cal-overlay" id="calOverlay">
+<div class="cal-overlay hidden" id="calOverlay">
   <div class="cal-box">
     <div class="cal-step-label" id="calStepLabel">Step 1 of 3 · Calibration</div>
     <div class="cal-title" id="calTitle">Hold Paddle Upright</div>
@@ -1150,12 +1150,12 @@ function renderSavedSessions() {
 
   list.innerHTML = '';
   if (!savedSessions.length) {
-    empty.style.display = '';
-    list.appendChild(empty);
+    if (empty) { empty.style.display = ''; list.appendChild(empty); }
     return;
   }
 
-  empty.style.display = 'none';
+  if (empty) empty.style.display = 'none';
+
   savedSessions.forEach((s) => {
     const row = document.createElement('div');
     row.className = 'saved-item';
@@ -1429,10 +1429,16 @@ function endSession() {
   if (snapshot.hitCount > 0) saveCompletedSession(snapshot);
 
   // Move UI to ready state immediately; do not wait for RESET echo round-trip.
-  resetSessionState();
   pendingWebReset = true;
   sendCmd('RESET');
+  // AFTER
+try {
   showSessionReport(snapshot, false);
+} catch(err) {
+  console.error('Report render failed:', err);
+  document.getElementById('sessionOverlay').classList.remove('hidden');
+}
+  resetSessionState();
 }
 
 function showSessionReport(sessionSnapshot = null, isHistorical = false) {
@@ -1493,7 +1499,7 @@ function showSessionReport(sessionSnapshot = null, isHistorical = false) {
   drawForceChart(shots);
 
   // Shot type breakdown
-  const sortedShots = computeShotBreakdown(shots);
+const sortedShots = computeShotBreakdown(shots.filter(h => h && h.val !== undefined));
   const maxShot = sortedShots.length ? sortedShots[0][1].count : 1;
   document.getElementById('shotBreakdown').innerHTML =
     sortedShots.map(([label,s])=>`
